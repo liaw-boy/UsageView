@@ -178,25 +178,25 @@ public struct UsageStatisticsView: View {
     private var providerPicker: some View {
         let filters: [ProviderFilter] = [.all] + activeProviders.map { .provider($0) }
         if filters.count > 2 {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 5) {
-                    ForEach(filters, id: \.self) { item in
-                        let selected = selectedFilter == item
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.14)) { selectedFilter = item }
-                        } label: {
-                            Text(item.title)
-                                .font(.system(size: 10.5, weight: selected ? .bold : .medium, design: .rounded))
-                                .foregroundStyle(selected ? .white : .white.opacity(0.65))
-                                .padding(.horizontal, 8.5)
-                                .padding(.vertical, 3)
-                                .background(selected ? Color.white.opacity(0.18) : Color.white.opacity(0.06), in: Capsule())
-                                .overlay(Capsule().strokeBorder(selected ? Color.white.opacity(0.3) : Color.clear, lineWidth: 0.8))
-                        }
-                        .buttonStyle(.plain)
+            HStack(spacing: 5) {
+                ForEach(filters, id: \.self) { item in
+                    let selected = selectedFilter == item
+                    Button {
+                        selectedFilter = item
+                    } label: {
+                        Text(item.title)
+                            .font(.system(size: 10.5, weight: selected ? .bold : .medium, design: .rounded))
+                            .foregroundStyle(selected ? .white : .white.opacity(0.65))
+                            .padding(.horizontal, 8.5)
+                            .padding(.vertical, 3.5)
+                            .background(selected ? Color.white.opacity(0.18) : Color.white.opacity(0.06), in: Capsule())
+                            .overlay(Capsule().strokeBorder(selected ? Color.white.opacity(0.3) : Color.clear, lineWidth: 0.8))
                     }
+                    .buttonStyle(.plain)
                 }
+                Spacer(minLength: 0)
             }
+            .padding(.horizontal, 2)
         }
     }
 
@@ -314,87 +314,94 @@ public struct UsageStatisticsView: View {
 
     // MARK: - Model Breakdown
 
-    @ViewBuilder
     private var modelBreakdownSection: some View {
         let models = currentStats.models
-        if !models.isEmpty {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    Text("模型明細")
-                        .font(.system(size: 11, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.85))
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("模型明細")
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.85))
 
-                    Spacer()
+                Spacer()
 
-                    HStack(spacing: 2) {
-                        ForEach(MetricPeriod.allCases) { p in
-                            let isSel = modelPeriod == p
-                            Button {
-                                withAnimation(.easeInOut(duration: 0.14)) { modelPeriod = p }
-                            } label: {
-                                Text(p.rawValue)
-                                    .font(.system(size: 9.5, weight: isSel ? .bold : .medium, design: .rounded))
-                                    .foregroundStyle(isSel ? .white : .white.opacity(0.55))
-                                    .padding(.horizontal, 7)
-                                    .padding(.vertical, 2.5)
-                                    .background(isSel ? Color.white.opacity(0.20) : Color.clear, in: Capsule())
-                            }
-                            .buttonStyle(.plain)
+                HStack(spacing: 2) {
+                    ForEach(MetricPeriod.allCases) { p in
+                        let isSel = modelPeriod == p
+                        Button {
+                            modelPeriod = p
+                        } label: {
+                            Text(p.rawValue)
+                                .font(.system(size: 9.5, weight: isSel ? .bold : .medium, design: .rounded))
+                                .foregroundStyle(isSel ? .white : .white.opacity(0.55))
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 2.5)
+                                .background(isSel ? Color.white.opacity(0.20) : Color.clear, in: Capsule())
                         }
+                        .buttonStyle(.plain)
                     }
-                    .padding(2)
-                    .background(Color.white.opacity(0.06), in: Capsule())
-                    .overlay(Capsule().strokeBorder(Color.white.opacity(0.12), lineWidth: 0.8))
                 }
-                .padding(.horizontal, 2)
+                .padding(2)
+                .background(Color.white.opacity(0.06), in: Capsule())
+                .overlay(Capsule().strokeBorder(Color.white.opacity(0.12), lineWidth: 0.8))
+            }
+            .padding(.horizontal, 2)
 
-                let maxCost = models.map { periodCost($0, period: modelPeriod) }.max() ?? 1.0
+            let maxCost = models.map { periodCost($0, period: modelPeriod) }.max() ?? 1.0
 
+            ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 5) {
-                    ForEach(models) { m in
-                        let cost = periodCost(m, period: modelPeriod)
-                        let tok = periodTokens(m, period: modelPeriod)
-                        let fraction = maxCost > 0 ? min(1.0, max(0.04, cost / maxCost)) : 0.04
+                    if models.isEmpty {
+                        Text("此期間無模型紀錄")
+                            .font(.system(size: 10, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.40))
+                            .frame(maxWidth: .infinity, minHeight: 80, alignment: .center)
+                    } else {
+                        ForEach(models) { m in
+                            let cost = periodCost(m, period: modelPeriod)
+                            let tok = periodTokens(m, period: modelPeriod)
+                            let fraction = maxCost > 0 ? min(1.0, max(0.04, cost / maxCost)) : 0.04
 
-                        VStack(alignment: .leading, spacing: 2) {
-                            HStack {
-                                Text(m.model)
-                                    .font(.system(size: 10, weight: .semibold, design: .rounded))
-                                    .foregroundStyle(.white.opacity(0.90))
-                                    .lineLimit(1)
-                                Spacer()
-                                Text(formatTokens(tok))
-                                    .font(.system(size: 9.5, weight: .medium, design: .rounded))
-                                    .foregroundStyle(.white.opacity(0.60))
-                                    .monospacedDigit()
-                                Text(String(format: "$%.2f", cost))
-                                    .font(.system(size: 10, weight: .bold, design: .rounded))
-                                    .foregroundStyle(Color(red: 0.35, green: 0.88, blue: 0.62))
-                                    .monospacedDigit()
-                                    .frame(width: 52, alignment: .trailing)
-                            }
-
-                            // Visual share bar
-                            GeometryReader { proxy in
-                                ZStack(alignment: .leading) {
-                                    RoundedRectangle(cornerRadius: 2)
-                                        .fill(Color.white.opacity(0.08))
-                                        .frame(height: 3.5)
-                                    RoundedRectangle(cornerRadius: 2)
-                                        .fill(Color(red: 0.35, green: 0.88, blue: 0.62).opacity(0.75))
-                                        .frame(width: proxy.size.width * fraction, height: 3.5)
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack {
+                                    Text(m.model)
+                                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                                        .foregroundStyle(.white.opacity(0.90))
+                                        .lineLimit(1)
+                                    Spacer()
+                                    Text(formatTokens(tok))
+                                        .font(.system(size: 9.5, weight: .medium, design: .rounded))
+                                        .foregroundStyle(.white.opacity(0.60))
+                                        .monospacedDigit()
+                                    Text(String(format: "$%.2f", cost))
+                                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                                        .foregroundStyle(Color(red: 0.35, green: 0.88, blue: 0.62))
+                                        .monospacedDigit()
+                                        .frame(width: 52, alignment: .trailing)
                                 }
+
+                                // Visual share bar
+                                GeometryReader { proxy in
+                                    ZStack(alignment: .leading) {
+                                        RoundedRectangle(cornerRadius: 2)
+                                            .fill(Color.white.opacity(0.08))
+                                            .frame(height: 3.5)
+                                        RoundedRectangle(cornerRadius: 2)
+                                            .fill(Color(red: 0.35, green: 0.88, blue: 0.62).opacity(0.75))
+                                            .frame(width: proxy.size.width * fraction, height: 3.5)
+                                    }
+                                }
+                                .frame(height: 3.5)
                             }
-                            .frame(height: 3.5)
+                            .padding(.vertical, 1.5)
                         }
-                        .padding(.vertical, 1.5)
                     }
                 }
                 .padding(8.5)
-                .background(Theme.cardBackground)
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Theme.cardBorder, lineWidth: 0.8))
             }
+            .frame(height: 102)
+            .background(Theme.cardBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Theme.cardBorder, lineWidth: 0.8))
         }
     }
 
@@ -416,17 +423,22 @@ public struct UsageStatisticsView: View {
 
     // MARK: - Recent Daily History (Last 5 Active Days)
 
-    @ViewBuilder
     private var recentDailySection: some View {
         let history = Array(currentStats.dailyHistory.prefix(5))
-        if history.count > 1 {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("近期每日趨勢")
-                    .font(.system(size: 10.5, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.75))
-                    .padding(.horizontal, 2)
+        return VStack(alignment: .leading, spacing: 4) {
+            Text("近期每日趨勢")
+                .font(.system(size: 10.5, weight: .bold, design: .rounded))
+                .foregroundStyle(.white.opacity(0.75))
+                .padding(.horizontal, 2)
 
-                HStack(spacing: 4) {
+            HStack(spacing: 4) {
+                if history.isEmpty {
+                    Text("暫無歷史資料")
+                        .font(.system(size: 9.5, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.40))
+                        .frame(maxWidth: .infinity, minHeight: 28)
+                        .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 5))
+                } else {
                     ForEach(history.reversed()) { item in
                         VStack(spacing: 2) {
                             Text(String(format: "$%.1f", item.costUSD))
