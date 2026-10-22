@@ -1,27 +1,34 @@
 import Combine
 import Foundation
 
-public enum MenuBarMode: String, CaseIterable, Codable, Sendable {
-    case all, tightest, iconOnly
-    public var title: String {
-        switch self {
-        case .all: "全部顯示"
-        case .tightest: "只顯示最緊張的一家"
-        case .iconOnly: "只顯示圖示"
-        }
-    }
-}
-
 @MainActor
 public final class SettingsStore: ObservableObject {
     private let defaults: UserDefaults
 
-    @Published public var refreshMinutes: Int { didSet { defaults.set(refreshMinutes, forKey: "refreshMinutes") } }
-    @Published public var menuBarMode: MenuBarMode { didSet { defaults.set(menuBarMode.rawValue, forKey: "menuBarMode") } }
-    @Published public var showRemaining: Bool { didSet { defaults.set(showRemaining, forKey: "showRemaining") } }
-    @Published public var notificationsEnabled: Bool { didSet { defaults.set(notificationsEnabled, forKey: "notifications") } }
-    @Published public var disabledProviders: Set<ProviderID> {
-        didSet { defaults.set(disabledProviders.map(\.rawValue), forKey: "disabledProviders") }
+    @Published public var refreshMinutes: Int {
+        didSet { defaults.set(refreshMinutes, forKey: "refreshMinutes") }
+    }
+    @Published public var showRemaining: Bool {
+        didSet { defaults.set(showRemaining, forKey: "showRemaining") }
+    }
+    @Published public var notificationsEnabled: Bool {
+        didSet { defaults.set(notificationsEnabled, forKey: "notifications") }
+    }
+    /// 1. 啟動哪些服務的追蹤（未勾選者完全不發送請求、不讀憑證）
+    @Published public var trackedProviders: Set<ProviderID> {
+        didSet { defaults.set(trackedProviders.map(\.rawValue), forKey: "trackedProviders") }
+    }
+    /// 2. 點開面板後，裡面要顯示哪些服務的卡片
+    @Published public var panelProviders: Set<ProviderID> {
+        didSet { defaults.set(panelProviders.map(\.rawValue), forKey: "panelProviders") }
+    }
+    /// 3. 狀態列上要顯示哪些服務的即時膠囊
+    @Published public var menuBarProviders: Set<ProviderID> {
+        didSet { defaults.set(menuBarProviders.map(\.rawValue), forKey: "menuBarProviders") }
+    }
+    /// 狀態列是否自動只顯示已勾選中最緊張（5h 用量最高）的那一家
+    @Published public var menuBarOnlyTightest: Bool {
+        didSet { defaults.set(menuBarOnlyTightest, forKey: "menuBarOnlyTightest") }
     }
 
     public static let refreshOptions = [2, 5, 10, 15, 30]
@@ -31,15 +38,69 @@ public final class SettingsStore: ObservableObject {
         self.defaults = defaults
         let m = defaults.integer(forKey: "refreshMinutes")
         refreshMinutes = max(m == 0 ? 5 : m, Self.minimumRefreshMinutes)
-        menuBarMode = MenuBarMode(rawValue: defaults.string(forKey: "menuBarMode") ?? "") ?? .all
         showRemaining = defaults.bool(forKey: "showRemaining")
         notificationsEnabled = defaults.object(forKey: "notifications") as? Bool ?? true
-        disabledProviders = Set((defaults.stringArray(forKey: "disabledProviders") ?? []).compactMap(ProviderID.init))
+        menuBarOnlyTightest = defaults.bool(forKey: "menuBarOnlyTightest")
+
+        let all = Set(ProviderID.allCases)
+        let initialTracked: Set<ProviderID>
+        if let saved = defaults.stringArray(forKey: "trackedProviders") {
+            initialTracked = Set(saved.compactMap(ProviderID.init))
+        } else if let legacyDisabled = defaults.stringArray(forKey: "disabledProviders") {
+            initialTracked = all.subtracting(legacyDisabled.compactMap(ProviderID.init))
+        } else {
+            initialTracked = all
+        }
+        trackedProviders = initialTracked
+
+        if let saved = defaults.stringArray(forKey: "panelProviders") {
+            panelProviders = Set(saved.compactMap(ProviderID.init))
+        } else {
+            panelProviders = initialTracked
+        }
+
+        if let saved = defaults.stringArray(forKey: "menuBarProviders") {
+            menuBarProviders = Set(saved.compactMap(ProviderID.init))
+        } else {
+            menuBarProviders = initialTracked
+        }
     }
 
-    public func isEnabled(_ id: ProviderID) -> Bool { !disabledProviders.contains(id) }
+    // MARK: - Queries
 
-    public func setEnabled(_ id: ProviderID, _ on: Bool) {
-        if on { disabledProviders.remove(id) } else { disabledProviders.insert(id) }
+    public func isTracked(_ id: ProviderID) -> Bool { trackedProviders.contains(id) }
+    public func isShownInPanel(_ id: ProviderID) -> Bool { isTracked(id) && panelProviders.contains(id) }
+    public func isShownInMenuBar(_ id: ProviderID) -> Bool { isTracked(id) && menuBarProviders.contains(id) }
+
+    // MARK: - Mutations with smart cascade
+
+    public func setTracked(_ id: ProviderID, _ on: Bool) {
+        if on {
+            trackedProviders.insert(id)
+            panelProviders.insert(id)
+            menuBarProviders.insert(id)
+        } else {
+            trackedProviders.remove(id)
+            panelProviders.remove(id)
+            menuBarProviders.remove(id)
+        }
+    }
+
+    public func setShownInPanel(_ id: ProviderID, _ on: Bool) {
+        if on {
+            trackedProviders.insert(id)
+            panelProviders.insert(id)
+        } else {
+            panelProviders.remove(id)
+        }
+    }
+
+    public func setShownInMenuBar(_ id: ProviderID, _ on: Bool) {
+        if on {
+            trackedProviders.insert(id)
+            menuBarProviders.insert(id)
+        } else {
+            menuBarProviders.remove(id)
+        }
     }
 }

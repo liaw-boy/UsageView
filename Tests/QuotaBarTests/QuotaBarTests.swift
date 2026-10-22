@@ -12,6 +12,7 @@ final class QuotaBarTests: XCTestCase {
             ("GET", "https://chatgpt.com/backend-api/wham/usage"),
             ("POST", "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary"),
             ("POST", "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary"),
+            ("GET", "https://api.github.com/repos/liaw-boy/quotabar/releases/latest"),
         ]
         for (method, urlString) in allowed {
             var req = URLRequest(url: URL(string: urlString)!)
@@ -144,6 +145,32 @@ final class QuotaBarTests: XCTestCase {
         XCTAssertNotNil(store.states[.claude]?.error)
         XCTAssertEqual(store.states[.claude]?.isStale, true)
         XCTAssertNotNil(store.backoffUntil(.claude))
+    }
+
+    @MainActor
+    func testIndependentTrackingPanelAndMenuBarSettings() {
+        let settings = SettingsStore(defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        // Initially all 3 are tracked, shown in panel, and shown in menu bar.
+        XCTAssertTrue(settings.isTracked(.claude))
+        XCTAssertTrue(settings.isShownInPanel(.claude))
+        XCTAssertTrue(settings.isShownInMenuBar(.claude))
+
+        // Hide Codex from menu bar only -> still tracked and shown in panel.
+        settings.setShownInMenuBar(.codex, false)
+        XCTAssertTrue(settings.isTracked(.codex))
+        XCTAssertTrue(settings.isShownInPanel(.codex))
+        XCTAssertFalse(settings.isShownInMenuBar(.codex))
+
+        // Disable tracking for Antigravity -> cascades off in panel and menu bar.
+        settings.setTracked(.antigravity, false)
+        XCTAssertFalse(settings.isTracked(.antigravity))
+        XCTAssertFalse(settings.isShownInPanel(.antigravity))
+        XCTAssertFalse(settings.isShownInMenuBar(.antigravity))
+
+        // Re-enabling menu bar for Antigravity automatically turns tracking back on.
+        settings.setShownInMenuBar(.antigravity, true)
+        XCTAssertTrue(settings.isTracked(.antigravity))
+        XCTAssertTrue(settings.isShownInMenuBar(.antigravity))
     }
 }
 

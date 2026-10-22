@@ -24,19 +24,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
-/// Composition root (OpenUsage style): wires SettingsStore, SnapshotStore, notifications, and StatusItemController.
+/// Composition root (OpenUsage style): wires SettingsStore, SnapshotStore, UpdateService, notifications, and StatusItemController.
 @MainActor
 final class AppContainer {
     let settings = SettingsStore()
     let store: SnapshotStore
+    let updater = UpdateService()
     let notifier: QuotaNotifier
     let statusItem: StatusItemController
+    private var cancellable: AnyCancellable?
 
     init() {
         store = SnapshotStore(settings: settings)
         notifier = QuotaNotifier(store: store, settings: settings)
-        statusItem = StatusItemController(store: store, settings: settings)
+        statusItem = StatusItemController(store: store, settings: settings, updater: updater)
         Task { await store.refresh() }
+
+        // When the user enables tracking for a provider in Settings, refresh immediately.
+        cancellable = settings.$trackedProviders
+            .dropFirst()
+            .removeDuplicates()
+            .sink { [weak self] _ in
+                Task { await self?.store.refresh() }
+            }
     }
 }
 

@@ -14,10 +14,10 @@ cat > $APP/Contents/Info.plist <<EOF
   <key>CFBundleIdentifier</key><string>app.quotabar.macos</string>
   <key>CFBundleExecutable</key><string>QuotaBar</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>0.2.0</string>
+  <key>CFBundleShortVersionString</key><string>0.3.0</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSUIElement</key><true/>
 </dict></plist>
 EOF
 codesign --force --sign - $APP
-echo "Built $APP — move it to /Applications and open it."
+echo "Built $APP (v0.3.0) — move it to /Applications and open it."

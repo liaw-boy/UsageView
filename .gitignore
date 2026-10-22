@@ -2,6 +2,7 @@ reference-*/
 .build/
 .swiftpm/
 *.app/
+*.zip
 *.xcodeproj
 *.xcworkspace
 .DS_Store

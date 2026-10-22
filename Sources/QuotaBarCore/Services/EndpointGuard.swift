@@ -20,6 +20,8 @@ public enum EndpointGuard {
         // Antigravity quota summary (gRPC-style POST with empty `{}` body, read-only).
         .init(method: "POST", host: "cloudcode-pa.googleapis.com", path: "/v1internal:retrieveUserQuotaSummary"),
         .init(method: "POST", host: "daily-cloudcode-pa.googleapis.com", path: "/v1internal:retrieveUserQuotaSummary"),
+        // Read-only GitHub Release check for QuotaBar self-update.
+        .init(method: "GET", host: "api.github.com", path: "/repos/liaw-boy/quotabar/releases/latest"),
     ]
 
     public struct Blocked: LocalizedError, Equatable {

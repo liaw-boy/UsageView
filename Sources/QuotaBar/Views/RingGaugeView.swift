@@ -110,7 +110,6 @@ struct DualRingGauge: View {
         let c2 = Theme.ringColor(for: .antigravity, usedPercent: thirdPartyUsed, secondaryPool: true)
 
         ZStack {
-            // Left half: Gemini (0...0.46)
             Circle()
                 .inset(by: inset + lineWidth / 2)
                 .trim(from: 0.03, to: 0.47)
@@ -122,7 +121,6 @@ struct DualRingGauge: View {
                 .stroke(c1, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                 .rotationEffect(.degrees(-90))
 
-            // Right half: Claude/GPT (0.53...0.97)
             Circle()
                 .inset(by: inset + lineWidth / 2)
                 .trim(from: 0.53, to: 0.97)
@@ -147,18 +145,14 @@ struct MenuBarStripView: View {
     private static let pillStroke = Color.white.opacity(0.20)
 
     private var activeItems: [(ProviderID, ProviderSnapshot)] {
-        let all = store.enabledProviders.compactMap { id -> (ProviderID, ProviderSnapshot)? in
+        let candidates = store.menuBarProviders.compactMap { id -> (ProviderID, ProviderSnapshot)? in
             guard let snap = store.states[id]?.snapshot, !snap.lines.isEmpty else { return nil }
             return (id, snap)
         }
-        switch settings.menuBarMode {
-        case .all:
-            return all
-        case .tightest:
-            return all.max { ($0.1.sessionPercent ?? 0) < ($1.1.sessionPercent ?? 0) }.map { [$0] } ?? []
-        case .iconOnly:
-            return []
+        if settings.menuBarOnlyTightest {
+            return candidates.max { ($0.1.sessionPercent ?? 0) < ($1.1.sessionPercent ?? 0) }.map { [$0] } ?? []
         }
+        return candidates
     }
 
     var body: some View {
@@ -168,7 +162,7 @@ struct MenuBarStripView: View {
                     Image(systemName: "chart.pie.fill")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(.white)
-                    if settings.menuBarMode != .iconOnly {
+                    if !store.menuBarProviders.isEmpty {
                         Text("QuotaBar")
                             .font(.system(size: 11, weight: .bold, design: .rounded))
                             .foregroundStyle(.white)

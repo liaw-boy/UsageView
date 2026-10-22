@@ -41,8 +41,16 @@ public final class SnapshotStore: ObservableObject {
         settings.$refreshMinutes.removeDuplicates().sink { [weak self] m in self?.schedule(minutes: m) }.store(in: &cancellables)
     }
 
-    public var enabledProviders: [ProviderID] {
-        runtimes.map(\.id).filter(settings.isEnabled)
+    public var trackedProviders: [ProviderID] {
+        runtimes.map(\.id).filter(settings.isTracked)
+    }
+
+    public var panelProviders: [ProviderID] {
+        runtimes.map(\.id).filter(settings.isShownInPanel)
+    }
+
+    public var menuBarProviders: [ProviderID] {
+        runtimes.map(\.id).filter(settings.isShownInMenuBar)
     }
 
     public var lastUpdated: Date? {
@@ -66,7 +74,7 @@ public final class SnapshotStore: ObservableObject {
         lastRefresh = now
 
         let due = runtimes.filter { r in
-            guard settings.isEnabled(r.id), let s = states[r.id], !s.isRefreshing else { return false }
+            guard settings.isTracked(r.id), let s = states[r.id], !s.isRefreshing else { return false }
             return (s.backoffUntil ?? .distantPast) <= now
         }
         guard !due.isEmpty else { return }
