@@ -1,13 +1,46 @@
-# UsageView
+<div align="center">
+  <img src="docs/images/app-icon.png" width="112" height="112" alt="UsageView Icon">
+  <h1>UsageView</h1>
+  <p><b>macOS 原生狀態列 AI 額度監控工具（Claude · Codex · Antigravity）</b></p>
+  <p>
+    <img src="https://img.shields.io/badge/Platform-macOS%2014%2B-111827?style=flat-square&logo=apple&logoColor=white" alt="macOS 14+">
+    <img src="https://img.shields.io/badge/Language-Swift%205.10-F05138?style=flat-square&logo=swift&logoColor=white" alt="Swift 5.10">
+    <img src="https://img.shields.io/badge/Quota%20Safety-100%25%20Read--Only-10B981?style=flat-square" alt="Zero Quota Consumption">
+    <img src="https://img.shields.io/badge/Secrets-Zero%20Embedded-3B82F6?style=flat-square" alt="Zero Secrets">
+  </p>
+</div>
 
-<p align="left">
-  <img src="https://img.shields.io/badge/Platform-macOS%2014%2B-111827?style=flat-square&logo=apple&logoColor=white" alt="macOS 14+">
-  <img src="https://img.shields.io/badge/Language-Swift%205.10-F05138?style=flat-square&logo=swift&logoColor=white" alt="Swift 5.10">
-  <img src="https://img.shields.io/badge/Quota%20Safety-100%25%20Read--Only-10B981?style=flat-square" alt="Zero Quota Consumption">
-  <img src="https://img.shields.io/badge/Secrets-Zero%20Embedded-3B82F6?style=flat-square" alt="Zero Secrets">
+---
+
+## 📸 畫面預覽与介面導覽
+
+### 1. 狀態列（Menu Bar）顯示模式與動態顏色警示
+支援全透明原生背景、固定等寬不跳動排版，並提供「**品牌圖示 / 進度圓環**」與「**5 小時 + 7 天雙行 / 僅 5 小時單行**」自由切換：
+
+<p align="center">
+  <img src="docs/images/menubar-modes.png" width="760" alt="Menu Bar Display Modes">
 </p>
 
-**UsageView** 是一款輕量、原生的 macOS 狀態列（Menu Bar）AI 額度監控工具，支援即時查看 **Claude**、**Codex (OpenAI)** 與 **Antigravity (`agy` / IDE)** 的 **5 小時（Session）** 與 **7 天（Weekly）** 額度進度。
+- **平常狀態**：以乾淨的**白色**顯示 `5h` 與 `7d` 百分比。
+- **重置倒數 `< 1 小時`**：當 5 小時或 7 天額度距離重置只剩 1 小時以內時，該列自動轉為**該 AI 的專屬品牌色**（Claude 橘 / Codex 綠 / Antigravity 藍），提醒你趁重置前多加利用。
+- **額度即將耗盡**：當已使用達 `80%`（剩餘 `≤ 20%`）時轉為**琥珀黃**，達 `95%`（剩餘 `≤ 5%`）時轉為**警戒紅**。
+
+---
+
+### 2. 主面板（展開儀表板）与偏好設定面板
+
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <b>📊 展開主面板（雙環同心儀表 + 5 段創意配速）</b><br><br>
+      <img src="docs/images/dashboard-preview.png" width="380" alt="Dashboard Preview">
+    </td>
+    <td align="center" width="50%">
+      <b>⚙️ 偏好設定與 GitHub 一鍵自動更新</b><br><br>
+      <img src="docs/images/settings-preview.png" width="380" alt="Settings Preview">
+    </td>
+  </tr>
+</table>
 
 ---
 
@@ -16,13 +49,13 @@
 ### 1. 狀態列（Menu Bar）全組合自訂與零跳動保證
 | 設定項目 | 可選模式 | 說明 |
 | :--- | :--- | :--- |
-| **狀態列模式** | `全部` / `單一` / `輪播` | 可同時並排顯示多家 AI、固定單一家 AI，或每 4 秒自動輪播切換 |
+| **狀態列模式** | `全部` / `單一` / `輪播` | 可同時並排顯示多家 AI、固定單一家 AI（自動過濾未追蹤服務），或每 4 秒自動輪播切換 |
 | **狀態列週期** | `僅 5 小時` / `5 小時 + 7 天` | 支援單行百分比，或雙行上下堆疊（上排 `5h`、下排 `7d`） |
 | **狀態列圖示** | `品牌圖示` / `進度圓環` | 預設顯示各家官方向量圖示（Claude / Codex / Antigravity），亦可切換為高對比進度圓環 |
 | **百分比模式** | `剩餘 %` / `已用 %` | 一鍵切換顯示「剩餘可用額度」或「目前已消耗額度」 |
 
 - **固定等寬不跳動**：透過隱藏的 `"100%"` 等寬數字模板鎖定排版寬度，無論數值為 `0%`、`6%`、`72%` 或 `100%`，在輪播切換時狀態列寬度**絕不左右縮放跳動、也絕不會被截斷為 `...`**。
-- **原生透明無底框**：狀態列採用全透明背景，完美融入 macOS 原生狀態列。
+- **嚴格固定更新間隔**：依據磁碟快取中每家 AI 的 `fetchedAt` 時間戳與設定的更新間隔（`2m / 5m / 10m / 15m / 30m`）排程，**重啟 App 或點開面板絕不會額外重打 API**。
 
 ---
 
@@ -40,7 +73,7 @@
 ---
 
 ### 3. 三層獨立開關與 GitHub 自動更新
-- **三層控制矩陣**：每家 AI 皆可獨立切換 **`⚡ 追蹤`**、**`🗂 面板`**、**`🖥 狀態列`**。未開啟「追蹤」的服務完全不讀取憑證、不發送任何網路請求。
+- **三層控制矩陣**：每家 AI 皆可獨立切換 **`⚡ 追蹤`**、**`🗂 面板`**、**`🖥 狀態列`**。未開啟「追蹤」的服務完全不讀取憑證、不發送任何網路請求，並自動從「單一顯示」選單中隱藏。
 - **GitHub 自動檢查與一鍵更新**：啟動時自動檢查 `liaw-boy/UsageView` 最新 Release；有新版時於面板頂部直接亮起 **`⬇ 有新版 vX.Y.Z`** 綠色按鈕，點擊即可自動下載、替換 `UsageView.app` 並重啟。
 
 ---
@@ -90,6 +123,7 @@ QUOTABAR_LOG=1 swift run
 usage-statusbar/
 ├── Package.swift
 ├── bundle.sh                                  # Release 打包與 AppIcon.icns 生成腳本
+├── docs/images/                               # README 介面預覽圖與 App 圖示
 ├── scripts/
 │   └── generate_icon.swift                    # CoreGraphics 原生 macOS 圖示繪製腳本
 ├── Sources/
@@ -103,10 +137,10 @@ usage-statusbar/
 │   │   │   └── UpdateService.swift            # GitHub Release 自動檢查與熱替換更新
 │   │   └── Stores/
 │   │       ├── SettingsStore.swift            # 狀態列模式、週期、圖示與三層追蹤偏好設定
-│   │       └── SnapshotStore.swift            # Stale-While-Revalidate 快取與 429 退避排程
+│   │       └── SnapshotStore.swift            # Stale-While-Revalidate 快取與固定間隔排程
 │   └── QuotaBar/
 │       ├── App/
-│       │   ├── AppContainer.swift             # 純 AppKit 進入點與閾值通知管理
+│       │   ├── AppContainer.swift             # 純 AppKit 進入點、通知管理與預覽圖匯出器
 │       │   └── StatusItemController.swift     # NSStatusItem 渲染與 NSPopover 動態尺寸同步
 │       └── Views/
 │           ├── DashboardView.swift            # 主面板卡片、創意配速標籤與偏好設定介面

@@ -7,9 +7,11 @@ APP=UsageView.app
 rm -rf $APP QuotaBar.app && mkdir -p $APP/Contents/MacOS $APP/Contents/Resources
 cp .build/release/QuotaBar $APP/Contents/MacOS/UsageView
 
-# Generate native macOS AppIcon.icns
+# Generate native macOS AppIcon.icns and docs/images/app-icon.png
 ICONSET=$(mktemp -d)/AppIcon.iconset
 swift scripts/generate_icon.swift "$ICONSET"
+mkdir -p docs/images
+cp "$ICONSET/icon_128x128@2x.png" docs/images/app-icon.png
 iconutil -c icns "$ICONSET" -o $APP/Contents/Resources/AppIcon.icns
 rm -rf "$(dirname "$ICONSET")"
 
@@ -24,10 +26,10 @@ cat > $APP/Contents/Info.plist <<EOF
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundleIconName</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>0.8.3</string>
+  <key>CFBundleShortVersionString</key><string>0.8.4</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSUIElement</key><true/>
 </dict></plist>
 EOF
 codesign --force --sign - $APP
-echo "Built $APP (UsageView v0.8.3) — move it to /Applications and open it."
+echo "Built $APP (UsageView v0.8.4) — move it to /Applications and open it."
