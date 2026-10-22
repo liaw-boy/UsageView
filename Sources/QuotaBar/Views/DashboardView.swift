@@ -250,7 +250,7 @@ struct ProviderCardView: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 11) {
-            DualRingGauge(provider: provider, lines: lines, showRemaining: showRemaining, size: 56, lineWidth: 5.5)
+            DualRingGauge(provider: provider, lines: lines, showRemaining: showRemaining, size: 62, lineWidth: 4.8)
                 .opacity(state.isStale ? 0.65 : 1.0)
                 .onTapGesture(perform: onToggleMode)
 
@@ -628,10 +628,12 @@ private struct MetricBarRow: View {
 
     var body: some View {
         GeometryReader { geo in
-            let barFraction = showRemaining ? (line.remainingPercent / 100.0) : (line.usedPercent / 100.0)
+            // Progress bar always indicates usage (消耗量：用越多越長，越滿越接近警示色)
+            let barFraction = line.usedPercent / 100.0
             let fillWidth = max(barFraction > 0.005 ? 4 : 0, geo.size.width * CGFloat(barFraction))
+            // White time tick always indicates time elapsed from left (0%) to right (100%)
             let elapsedFraction = line.timeElapsedFraction()
-            let tickFraction = elapsedFraction.map { showRemaining ? (1.0 - $0) : $0 }
+            let tickFraction = elapsedFraction
 
             ZStack(alignment: .leading) {
                 RoundedRectangle(cornerRadius: 5, style: .continuous)
@@ -640,7 +642,7 @@ private struct MetricBarRow: View {
                     .fill(color.opacity(0.35))
                     .frame(width: fillWidth)
 
-                // Even-pace time tick mark matching the current display direction (Remaining vs Used)
+                // Even-pace time tick mark (where steady linear usage would be right now)
                 if let tick = tickFraction {
                     let tickX = min(max(3, geo.size.width * CGFloat(tick)), geo.size.width - 3)
                     RoundedRectangle(cornerRadius: 1)
