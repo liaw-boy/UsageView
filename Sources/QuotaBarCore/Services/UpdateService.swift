@@ -58,12 +58,22 @@ public final class UpdateService: ObservableObject {
         try? fm.createDirectory(at: tempDir, withIntermediateDirectories: true)
 
         let downloaded = await Task.detached { () -> URL? in
-            guard let gh = Self.findGHExecutable() else { return nil }
-            let code = Self.runProcess(
-                gh,
-                args: ["release", "download", "--repo", Self.repo, "--pattern", "*.zip", "--dir", tempDir.path]
-            ).status
-            guard code == 0,
+            // 1. Try gh CLI if available; 2. Fall back to curl from public GitHub Releases
+            var gotZip = false
+            if let gh = Self.findGHExecutable() {
+                let code = Self.runProcess(
+                    gh,
+                    args: ["release", "download", "--repo", Self.repo, "--pattern", "*.zip", "--dir", tempDir.path]
+                ).status
+                gotZip = (code == 0)
+            }
+            if !gotZip {
+                let zipTarget = tempDir.appendingPathComponent("UsageView.app.zip")
+                let downloadURL = "https://github.com/\(Self.repo)/releases/latest/download/UsageView.app.zip"
+                let curlCode = Self.runProcess("/usr/bin/curl", args: ["-fsSL", downloadURL, "-o", zipTarget.path]).status
+                gotZip = (curlCode == 0 && fm.fileExists(atPath: zipTarget.path))
+            }
+            guard gotZip,
                   let zip = (try? fm.contentsOfDirectory(at: tempDir, includingPropertiesForKeys: nil))?
                       .first(where: { $0.pathExtension == "zip" })
             else { return nil }
