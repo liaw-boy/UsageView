@@ -16,5 +16,5 @@ macOS 原生狀態列小工具，查看 **Claude / Codex / Antigravity** 的 5 �
 ```sh
 swift test                      # 執行白名單與解析單元測試
 QUOTABAR_LOG=1 swift run        # 開發執行（終端機印出所有通過白名單的 URL）
-./bundle.sh                     # 打包成 QuotaBar.app（UsageView）
+./bundle.sh                     # 打包成 UsageView.app
 ```

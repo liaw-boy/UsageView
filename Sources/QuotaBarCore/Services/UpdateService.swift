@@ -1,12 +1,12 @@
 import AppKit
 import Foundation
 
-/// Checks GitHub (`liaw-boy/quotabar`) for newer releases and performs one-click self-update.
+/// Checks GitHub (`liaw-boy/UsageView`) for newer releases and performs one-click self-update.
 /// Uses the `gh` CLI when available (supporting private repos with existing local keyring auth),
 /// and falls back to the public GitHub Releases endpoint through `HTTPClient`.
 @MainActor
 public final class UpdateService: ObservableObject {
-    public nonisolated static let repo = "liaw-boy/quotabar"
+    public nonisolated static let repo = "liaw-boy/UsageView"
     public static let currentVersion: String = {
         (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "0.3.0"
     }()

@@ -24,7 +24,7 @@ public enum EndpointGuard {
         // Google OAuth access-token exchange (Google refresh tokens do not rotate; kept in memory only).
         .init(method: "POST", host: "oauth2.googleapis.com", path: "/token"),
         // Read-only GitHub Release check for self-update.
-        .init(method: "GET", host: "api.github.com", path: "/repos/liaw-boy/quotabar/releases/latest"),
+        .init(method: "GET", host: "api.github.com", path: "/repos/liaw-boy/UsageView/releases/latest"),
     ]
 
     public struct Blocked: LocalizedError, Equatable {

@@ -13,7 +13,7 @@ final class QuotaBarTests: XCTestCase {
             ("POST", "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary"),
             ("POST", "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary"),
             ("POST", "https://oauth2.googleapis.com/token"),
-            ("GET", "https://api.github.com/repos/liaw-boy/quotabar/releases/latest"),
+            ("GET", "https://api.github.com/repos/liaw-boy/UsageView/releases/latest"),
         ]
         for (method, urlString) in allowed {
             var req = URLRequest(url: URL(string: urlString)!)
