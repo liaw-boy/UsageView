@@ -632,7 +632,6 @@ private struct MetricBarRow: View {
             let fillWidth = max(barFraction > 0.005 ? 4 : 0, geo.size.width * CGFloat(barFraction))
             let elapsedFraction = line.timeElapsedFraction()
             let tickFraction = elapsedFraction.map { showRemaining ? (1.0 - $0) : $0 }
-            let projection = line.projectionText()
 
             ZStack(alignment: .leading) {
                 RoundedRectangle(cornerRadius: 5, style: .continuous)
@@ -641,7 +640,7 @@ private struct MetricBarRow: View {
                     .fill(color.opacity(0.35))
                     .frame(width: fillWidth)
 
-                // Feature 1: Even-pace time tick mark matching the current display direction (Remaining vs Used)
+                // Even-pace time tick mark matching the current display direction (Remaining vs Used)
                 if let tick = tickFraction {
                     let tickX = min(max(3, geo.size.width * CGFloat(tick)), geo.size.width - 3)
                     RoundedRectangle(cornerRadius: 1)
@@ -658,18 +657,7 @@ private struct MetricBarRow: View {
                         .lineLimit(1)
                         .fixedSize(horizontal: true, vertical: false)
 
-                    if let proj = projection {
-                        Text("· \(proj.text)")
-                            .font(.system(size: 9, weight: .medium, design: .rounded))
-                            .foregroundStyle(
-                                proj.isWarning
-                                    ? Color(red: 1.0, green: 0.65, blue: 0.28)
-                                    : Color.white.opacity(0.50)
-                            )
-                            .lineLimit(1)
-                    }
-
-                    Spacer(minLength: 2)
+                    Spacer(minLength: 4)
 
                     Text(trailingText)
                         .font(.system(size: 10, weight: .semibold, design: .rounded))

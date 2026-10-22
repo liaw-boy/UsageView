@@ -375,44 +375,45 @@ public actor LocalUsageScanner {
     }
 
     private static func parseAntigravityDB(path: String) -> [Record] {
-        let hasSteps = runSQLite(path: path, sql: "SELECT 1 FROM pragma_table_info('steps') WHERE name = 'metadata'") != nil
-        let stepCol = hasSteps
-            ? ", 'step_hex', (SELECT CASE WHEN length(metadata) <= 524288 THEN hex(metadata) ELSE NULL END FROM steps WHERE idx = g.idx)"
-            : ""
-        let sql = """
-        SELECT json_group_array(json_object('hex', CASE WHEN length(g.data) <= 524288 THEN hex(g.data) ELSE NULL END\(stepCol)))
-        FROM (SELECT idx, data FROM gen_metadata WHERE data IS NOT NULL ORDER BY idx LIMIT 500) g;
-        """
-        guard let jsonText = runSQLite(path: path, sql: sql),
-              let rows = (try? JSONSerialization.jsonObject(with: Data(jsonText.utf8))) as? [[String: Any]]
-        else { return [] }
+        return autoreleasepool {
+            let hasSteps = runSQLite(path: path, sql: "SELECT 1 FROM pragma_table_info('steps') WHERE name = 'metadata'") != nil
+            let stepCol = hasSteps
+                ? " || '|' || COALESCE((SELECT CASE WHEN length(metadata) <= 32768 THEN hex(metadata) ELSE '' END FROM steps WHERE idx = g.idx), '')"
+                : ""
+            let sql = """
+            SELECT CASE WHEN length(g.data) <= 65536 THEN hex(g.data) ELSE '' END\(stepCol)
+            FROM gen_metadata g WHERE g.data IS NOT NULL ORDER BY g.idx;
+            """
+            guard let rawText = runSQLite(path: path, sql: sql) else { return [] }
 
-        var out: [Record] = []
-        for row in rows {
-            guard let hex = row["hex"] as? String,
-                  let blob = ProtoDecode.bytes(fromHex: hex),
-                  let ev = ProtoDecode.decodeGeneration(
-                      blob: blob,
-                      stepBlob: (row["step_hex"] as? String).flatMap(ProtoDecode.bytes(fromHex:))
-                  )
-            else { continue }
-            let total = ev.inputTokens + ev.cacheReadTokens + ev.outputTokens
-            guard total > 0 else { continue }
-            let cost = ModelRateTable.estimateAntigravityCost(
-                model: ev.modelID ?? ev.label ?? "gemini-3.1-pro",
-                input: ev.inputTokens,
-                cacheRead: ev.cacheReadTokens,
-                output: ev.outputTokens
-            )
-            out.append(Record(
-                timestamp: Date(timeIntervalSince1970: TimeInterval(ev.timestampSeconds)),
-                tokens: total,
-                costUSD: cost,
-                dedupKey: nil,
-                isSidechain: false
-            ))
+            var out: [Record] = []
+            for line in rawText.split(whereSeparator: \.isNewline) {
+                let parts = line.split(separator: "|", omittingEmptySubsequences: false)
+                guard let hexSub = parts.first, !hexSub.isEmpty,
+                      let blob = ProtoDecode.bytes(fromHex: String(hexSub))
+                else { continue }
+                let stepBlob: [UInt8]? = (parts.count > 1 && !parts[1].isEmpty)
+                    ? ProtoDecode.bytes(fromHex: String(parts[1]))
+                    : nil
+                guard let ev = ProtoDecode.decodeGeneration(blob: blob, stepBlob: stepBlob) else { continue }
+                let total = ev.inputTokens + ev.cacheReadTokens + ev.outputTokens
+                guard total > 0 else { continue }
+                let cost = ModelRateTable.estimateAntigravityCost(
+                    model: ev.modelID ?? ev.label ?? "gemini-3.1-pro",
+                    input: ev.inputTokens,
+                    cacheRead: ev.cacheReadTokens,
+                    output: ev.outputTokens
+                )
+                out.append(Record(
+                    timestamp: Date(timeIntervalSince1970: TimeInterval(ev.timestampSeconds)),
+                    tokens: total,
+                    costUSD: cost,
+                    dedupKey: nil,
+                    isSidechain: false
+                ))
+            }
+            return out
         }
-        return out
     }
 
     private static func runSQLite(path: String, sql: String) -> String? {
@@ -440,10 +441,11 @@ public actor LocalUsageScanner {
         if let cached = fileCache[path], cached.mtime == mtime, cached.size == size {
             return cached.records
         }
-        guard size > 0, size <= 1_000_000_000,
-              let data = try? Data(contentsOf: url, options: .alwaysMapped)
-        else { return [] }
-        let records = parser(data)
+        guard size > 0, size <= 1_000_000_000 else { return [] }
+        let records: [Record] = autoreleasepool {
+            guard let data = try? Data(contentsOf: url, options: .alwaysMapped) else { return [] }
+            return parser(data)
+        }
         fileCache[path] = CachedFile(mtime: mtime, size: size, records: records)
         return records
     }

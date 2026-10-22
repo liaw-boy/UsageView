@@ -303,14 +303,20 @@ struct AntigravityAuthStore: Sendable {
             "/usr/local/bin/agy",
             "/Applications/Antigravity.app/Contents/Resources/app/extensions/antigravity/bin/language_server_macos_arm",
         ]
+        let idPrefix = Data("1071006060591-".utf8)
+        let idSuffix = Data(".apps.googleusercontent.com".utf8)
+        let secretPrefix = Data("GOCSPX-".utf8)
         for path in candidates {
             let expanded = (path as NSString).expandingTildeInPath
-            guard let data = try? Data(contentsOf: URL(fileURLWithPath: expanded), options: .mappedIfSafe) else { continue }
-            let text = String(decoding: data, as: UTF8.self)
-            guard let idRange = text.range(of: #"1071[0-9]+-[a-z0-9]{32}\.apps\.googleusercontent\.com"#, options: .regularExpression),
-                  let secretRange = text.range(of: #"GOCSPX-[A-Za-z0-9_-]{28}"#, options: .regularExpression)
+            guard let data = try? Data(contentsOf: URL(fileURLWithPath: expanded), options: .alwaysMapped),
+                  let idStart = data.range(of: idPrefix)?.lowerBound,
+                  let idEnd = data.range(of: idSuffix, in: idStart..<min(data.endIndex, idStart + 120))?.upperBound,
+                  let secStart = data.range(of: secretPrefix)?.lowerBound
             else { continue }
-            return (String(text[idRange]), String(text[secretRange]))
+            let secEnd = min(data.endIndex, secStart + 35)
+            let idStr = String(decoding: data[idStart..<idEnd], as: UTF8.self)
+            let secStr = String(decoding: data[secStart..<secEnd], as: UTF8.self)
+            return (idStr, secStr)
         }
         return nil
     }()
