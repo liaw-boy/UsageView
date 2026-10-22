@@ -320,62 +320,62 @@ struct MenuBarStripView: View {
     }
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 5) {
             if activeItems.isEmpty {
-                HStack(spacing: 3.5) {
+                HStack(spacing: 3) {
                     Image(systemName: "waveform.path.ecg")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(.white)
                     Text("--%")
-                        .font(.system(size: 11.5, weight: .semibold, design: .rounded))
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
                         .foregroundStyle(.white)
                         .monospacedDigit()
                 }
-                .frame(width: 45, height: 18)
+                .frame(width: 44, height: 22)
             } else {
                 ForEach(activeItems, id: \.0) { id, snap in
                     let color = Theme.brandColor(id)
                     if settings.menuBarMetricMode == .sessionAndWeekly {
-                        // Two stacked rows with explicit "5h" and "7d" labels in front of each percentage,
-                        // paired with the AI logo (or progress ring) on the left and a locked 56pt width.
-                        HStack(spacing: 3.5) {
-                            leadingIndicator(for: id, snap: snap, size: 13.5)
-                            VStack(alignment: .leading, spacing: -1.5) {
-                                HStack(spacing: 2) {
+                        // Two stacked rows filling the full 22pt vertical height of the menu bar,
+                        // with explicit "5h" and "7d" labels and AI logo / progress ring on the left.
+                        HStack(spacing: 3) {
+                            leadingIndicator(for: id, snap: snap, size: 14.5)
+                            VStack(alignment: .leading, spacing: -2.5) {
+                                HStack(spacing: 1.5) {
                                     Text("5h")
-                                        .font(.system(size: 8.5, weight: .heavy, design: .rounded))
+                                        .font(.system(size: 9.5, weight: .heavy, design: .rounded))
                                         .foregroundStyle(color)
-                                        .frame(width: 12, alignment: .leading)
+                                        .frame(width: 13, alignment: .leading)
                                     Text(percentString(snap.sessionPercent))
-                                        .font(.system(size: 9.5, weight: .bold, design: .rounded))
+                                        .font(.system(size: 10.5, weight: .bold, design: .rounded))
                                         .foregroundStyle(.white)
                                         .monospacedDigit()
-                                        .frame(width: 25, alignment: .trailing)
+                                        .frame(width: 27, alignment: .trailing)
                                 }
-                                HStack(spacing: 2) {
+                                HStack(spacing: 1.5) {
                                     Text("7d")
-                                        .font(.system(size: 8.5, weight: .heavy, design: .rounded))
+                                        .font(.system(size: 9.5, weight: .heavy, design: .rounded))
                                         .foregroundStyle(.white.opacity(0.68))
-                                        .frame(width: 12, alignment: .leading)
+                                        .frame(width: 13, alignment: .leading)
                                     Text(percentString(snap.weeklyPercent))
-                                        .font(.system(size: 9.5, weight: .bold, design: .rounded))
-                                        .foregroundStyle(.white.opacity(0.88))
+                                        .font(.system(size: 10.5, weight: .bold, design: .rounded))
+                                        .foregroundStyle(.white.opacity(0.90))
                                         .monospacedDigit()
-                                        .frame(width: 25, alignment: .trailing)
+                                        .frame(width: 27, alignment: .trailing)
                                 }
                             }
                         }
-                        .frame(width: 56, height: 19)
+                        .frame(width: 59, height: 22)
                     } else {
                         // Single 5h row with AI logo (or progress ring) on the left and locked 45pt width.
-                        HStack(spacing: 3.5) {
-                            leadingIndicator(for: id, snap: snap, size: 13)
+                        HStack(spacing: 3) {
+                            leadingIndicator(for: id, snap: snap, size: 14)
                             Text(percentString(snap.sessionPercent))
-                                .font(.system(size: 11.5, weight: .bold, design: .rounded))
+                                .font(.system(size: 12.5, weight: .bold, design: .rounded))
                                 .foregroundStyle(.white)
                                 .monospacedDigit()
                         }
-                        .frame(width: 45, height: 18, alignment: .center)
+                        .frame(width: 45, height: 22, alignment: .center)
                     }
                 }
             }

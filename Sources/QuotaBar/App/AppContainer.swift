@@ -6,20 +6,24 @@ import SwiftUI
 @preconcurrency import UserNotifications
 
 @main
-struct QuotaBarApp: App {
-    @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
-
-    var body: some Scene {
-        Settings { EmptyView() }
-    }
-}
-
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var container: AppContainer!
 
+    static func main() {
+        let app = NSApplication.shared
+        let delegate = AppDelegate()
+        app.delegate = delegate
+        app.setActivationPolicy(.accessory)
+        app.run()
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        // Close any stray default windows if macOS restored state
+        for window in NSApp.windows {
+            window.close()
+        }
         container = AppContainer()
     }
 }

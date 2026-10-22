@@ -10,7 +10,7 @@ struct DashboardView: View {
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 15)) { _ in
-            VStack(spacing: 8) {
+            VStack(spacing: 6) {
                 header
                 if controller.showingSettings {
                     SettingsView(settings: settings, updater: updater)
@@ -19,8 +19,8 @@ struct DashboardView: View {
                 }
                 footer
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
             .frame(width: 356)
             .fixedSize(horizontal: false, vertical: true)
             .background(Theme.panelBackground)

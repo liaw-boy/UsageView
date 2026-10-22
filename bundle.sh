@@ -24,10 +24,10 @@ cat > $APP/Contents/Info.plist <<EOF
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundleIconName</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>0.7.1</string>
+  <key>CFBundleShortVersionString</key><string>0.7.2</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSUIElement</key><true/>
 </dict></plist>
 EOF
 codesign --force --sign - $APP
-echo "Built $APP (UsageView v0.7.1) — move it to /Applications and open it."
+echo "Built $APP (UsageView v0.7.2) — move it to /Applications and open it."

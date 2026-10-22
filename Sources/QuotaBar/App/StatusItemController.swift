@@ -40,7 +40,17 @@ final class StatusItemController: NSObject, ObservableObject {
         store.objectWillChange
             .merge(with: settings.objectWillChange)
             .receive(on: RunLoop.main)
-            .sink { [weak self] _ in self?.updateStrip() }
+            .sink { [weak self] _ in
+                self?.updateStrip()
+                self?.syncPopoverSize()
+            }
+            .store(in: &cancellables)
+
+        $showingSettings
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.syncPopoverSize()
+            }
             .store(in: &cancellables)
 
         // Also wake-refresh when the Mac wakes from sleep.
@@ -55,6 +65,18 @@ final class StatusItemController: NSObject, ObservableObject {
         updateStrip()
     }
 
+    func syncPopoverSize() {
+        guard let view = popover.contentViewController?.view else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            view.layoutSubtreeIfNeeded()
+            let fitting = view.fittingSize
+            if fitting.height > 10 {
+                self.popover.contentSize = NSSize(width: 356, height: fitting.height)
+            }
+        }
+    }
+
     private func updateStrip() {
         guard let button = statusItem.button else { return }
         let view = MenuBarStripView(store: store, settings: settings)
@@ -65,7 +87,7 @@ final class StatusItemController: NSObject, ObservableObject {
             button.image = image
             button.title = ""
             // Lock exact status item length so carousel rotation or digit count changes never resize the button.
-            statusItem.length = image.size.width + 2
+            statusItem.length = image.size.width
         } else {
             button.image = nil
             button.title = "◎ UsageView"
