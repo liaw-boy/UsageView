@@ -3,7 +3,7 @@ import Combine
 import QuotaBarCore
 import SwiftUI
 
-/// AppKit status item + floating panel.
+/// AppKit status item + auto-sizing floating panel.
 /// Left-click toggles the popover; right-click opens the quick context menu (Refresh / Check Updates / Settings / Quit).
 @MainActor
 final class StatusItemController: NSObject, ObservableObject {
@@ -24,10 +24,12 @@ final class StatusItemController: NSObject, ObservableObject {
 
         popover.behavior = .transient
         popover.animates = true
-        popover.contentSize = NSSize(width: 368, height: 520)
-        popover.contentViewController = NSHostingController(
+        let hosting = NSHostingController(
             rootView: DashboardView(store: store, settings: settings, updater: updater, controller: self)
         )
+        // Auto-size popover height to hug the SwiftUI content with zero wasted top/bottom space!
+        hosting.sizingOptions = [.preferredContentSize]
+        popover.contentViewController = hosting
 
         if let button = statusItem.button {
             button.target = self
@@ -37,14 +39,23 @@ final class StatusItemController: NSObject, ObservableObject {
 
         Publishers.CombineLatest4(
             store.$states,
+            store.$carouselTick,
             settings.$trackedProviders,
-            settings.$menuBarProviders,
-            settings.$menuBarOnlyTightest
+            settings.$menuBarProviders
         )
-        .combineLatest(settings.$showRemaining)
+        .combineLatest(settings.$menuBarDisplayMode, settings.$selectedSingleProvider, settings.$showRemaining)
         .receive(on: RunLoop.main)
         .sink { [weak self] _ in self?.updateStrip() }
         .store(in: &cancellables)
+
+        // Also wake-refresh when the Mac wakes from sleep.
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in await self?.store.refresh() }
+        }
 
         updateStrip()
     }
@@ -60,7 +71,7 @@ final class StatusItemController: NSObject, ObservableObject {
             button.title = ""
         } else {
             button.image = nil
-            button.title = "◎ QuotaBar"
+            button.title = "◎ TokenPulse"
         }
     }
 
@@ -82,6 +93,8 @@ final class StatusItemController: NSObject, ObservableObject {
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             popover.contentViewController?.view.window?.makeKey()
             startMonitoringOutsideClicks()
+            // Automatically refresh if data is older than 60s or any provider had an error.
+            Task { await store.refreshIfStale(maxAge: 60) }
         }
     }
 
@@ -100,7 +113,7 @@ final class StatusItemController: NSObject, ObservableObject {
         menu.addItem(settingsItem)
 
         menu.addItem(.separator())
-        let quitItem = NSMenuItem(title: "結束 QuotaBar", action: #selector(menuQuit), keyEquivalent: "q")
+        let quitItem = NSMenuItem(title: "結束 TokenPulse", action: #selector(menuQuit), keyEquivalent: "q")
         quitItem.target = self
         menu.addItem(quitItem)
 

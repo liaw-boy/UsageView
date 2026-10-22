@@ -36,8 +36,8 @@ struct DualRingGauge: View {
     let provider: ProviderID
     let lines: [MetricLine]
     let showRemaining: Bool
-    var size: CGFloat = 68
-    var lineWidth: CGFloat = 6.5
+    var size: CGFloat = 58
+    var lineWidth: CGFloat = 5.8
 
     private var sessionUsed: Double {
         lines.filter { $0.kind == .session }.map(\.usedPercent).max() ?? 0
@@ -48,7 +48,7 @@ struct DualRingGauge: View {
     }
 
     private var innerInset: CGFloat {
-        size < 24 ? (lineWidth + 1.2) : (lineWidth + 3.5)
+        size < 24 ? (lineWidth + 1.2) : (lineWidth + 3.0)
     }
 
     var body: some View {
@@ -65,7 +65,7 @@ struct DualRingGauge: View {
                 }
             }
 
-            if size >= 50 {
+            if size >= 46 {
                 VStack(spacing: -1) {
                     Text(Theme.formattedPercent(sessionUsed, showRemaining: showRemaining))
                         .font(.system(size: size * 0.23, weight: .bold, design: .rounded))
@@ -141,35 +141,45 @@ struct MenuBarStripView: View {
     @ObservedObject var store: SnapshotStore
     @ObservedObject var settings: SettingsStore
 
-    private static let pillFill = Color(red: 0.11, green: 0.12, blue: 0.17).opacity(0.92)
-    private static let pillStroke = Color.white.opacity(0.20)
+    private static let pillFill = Color(red: 0.11, green: 0.12, blue: 0.17).opacity(0.94)
+    private static let pillStroke = Color.white.opacity(0.22)
 
     private var activeItems: [(ProviderID, ProviderSnapshot)] {
         let candidates = store.menuBarProviders.compactMap { id -> (ProviderID, ProviderSnapshot)? in
             guard let snap = store.states[id]?.snapshot, !snap.lines.isEmpty else { return nil }
             return (id, snap)
         }
-        if settings.menuBarOnlyTightest {
+        guard !candidates.isEmpty else { return [] }
+
+        switch settings.menuBarDisplayMode {
+        case .all:
+            return candidates
+        case .single:
+            if let match = candidates.first(where: { $0.0 == settings.selectedSingleProvider }) {
+                return [match]
+            }
             return candidates.max { ($0.1.sessionPercent ?? 0) < ($1.1.sessionPercent ?? 0) }.map { [$0] } ?? []
+        case .carousel:
+            let idx = abs(store.carouselTick) % candidates.count
+            return [candidates[idx]]
         }
-        return candidates
     }
 
     var body: some View {
-        HStack(spacing: 5) {
+        HStack(spacing: 4) {
             if activeItems.isEmpty {
                 HStack(spacing: 4) {
-                    Image(systemName: "chart.pie.fill")
+                    Image(systemName: "waveform.path.ecg")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(.white)
                     if !store.menuBarProviders.isEmpty {
-                        Text("QuotaBar")
+                        Text("TokenPulse")
                             .font(.system(size: 11, weight: .bold, design: .rounded))
                             .foregroundStyle(.white)
                     }
                 }
                 .padding(.horizontal, 7)
-                .padding(.vertical, 2.5)
+                .padding(.vertical, 2)
                 .background(Self.pillFill, in: Capsule())
                 .overlay(Capsule().strokeBorder(Self.pillStroke, lineWidth: 0.8))
             } else {

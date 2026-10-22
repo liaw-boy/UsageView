@@ -12,6 +12,7 @@ final class QuotaBarTests: XCTestCase {
             ("GET", "https://chatgpt.com/backend-api/wham/usage"),
             ("POST", "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary"),
             ("POST", "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary"),
+            ("POST", "https://oauth2.googleapis.com/token"),
             ("GET", "https://api.github.com/repos/liaw-boy/quotabar/releases/latest"),
         ]
         for (method, urlString) in allowed {
@@ -34,7 +35,6 @@ final class QuotaBarTests: XCTestCase {
             // Rotating OAuth token refresh (would log out user's CLI!)
             ("POST", "https://platform.claude.com/v1/oauth/token"),
             ("POST", "https://auth.openai.com/oauth/token"),
-            ("POST", "https://oauth2.googleapis.com/token"),
             // Wrong method or plain HTTP
             ("POST", "https://api.anthropic.com/api/oauth/usage"),
             ("GET", "http://api.anthropic.com/api/oauth/usage"),

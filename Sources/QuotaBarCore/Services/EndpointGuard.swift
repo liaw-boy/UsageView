@@ -2,9 +2,10 @@ import Foundation
 
 /// The single choke point for network safety.
 ///
-/// QuotaBar must never consume quota or alter account state. Only the 4 read-only usage endpoints
-/// are allowed. Anything else — inference endpoints, rate-limit reset / credit consume endpoints,
-/// or any OAuth token refresh — is rejected before a byte leaves the machine.
+/// TokenPulse must never consume quota or alter account state. Only the read-only usage endpoints
+/// (plus Google's OAuth token endpoint for Antigravity's in-memory access token and GitHub's release
+/// check endpoint) are allowed. Anything else — inference endpoints, rate-limit reset / credit consume
+/// endpoints, or rotating Claude/Codex OAuth token refresh — is rejected before a byte leaves the machine.
 public enum EndpointGuard {
     public struct Endpoint: Sendable, Equatable {
         public let method: String
@@ -20,7 +21,9 @@ public enum EndpointGuard {
         // Antigravity quota summary (gRPC-style POST with empty `{}` body, read-only).
         .init(method: "POST", host: "cloudcode-pa.googleapis.com", path: "/v1internal:retrieveUserQuotaSummary"),
         .init(method: "POST", host: "daily-cloudcode-pa.googleapis.com", path: "/v1internal:retrieveUserQuotaSummary"),
-        // Read-only GitHub Release check for QuotaBar self-update.
+        // Google OAuth access-token exchange (Google refresh tokens do not rotate; kept in memory only).
+        .init(method: "POST", host: "oauth2.googleapis.com", path: "/token"),
+        // Read-only GitHub Release check for self-update.
         .init(method: "GET", host: "api.github.com", path: "/repos/liaw-boy/quotabar/releases/latest"),
     ]
 

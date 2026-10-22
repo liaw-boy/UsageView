@@ -12,21 +12,23 @@ public struct ProviderState: Sendable {
     public var isStale: Bool { error != nil && snapshot != nil }
 }
 
-/// Stale-while-revalidate snapshot store (OpenUsage behavior):
-/// cached values show instantly, refresh runs on a timer, failures never wipe data.
-/// Also enforces our rate-limit hygiene: manual-refresh throttle, 429 exponential backoff, 120 s timeout.
+/// Stale-while-revalidate snapshot store:
+/// cached values show instantly, refresh runs automatically on a `.common` RunLoop timer + wakeup check,
+/// and failures never wipe data.
 @MainActor
 public final class SnapshotStore: ObservableObject {
     @Published public private(set) var states: [ProviderID: ProviderState] = [:]
+    @Published public private(set) var carouselTick: Int = 0
 
-    public static let manualThrottle: TimeInterval = 30
+    public static let manualThrottle: TimeInterval = 15
     public static let providerTimeout: TimeInterval = 120
-    static let backoffSteps: [TimeInterval] = [5, 10, 20, 40, 60].map { $0 * 60 }
+    static let backoffSteps: [TimeInterval] = [2, 5, 10, 20, 40].map { $0 * 60 }
 
     private let runtimes: [ProviderRuntime]
     private let settings: SettingsStore
     private let cacheURL: URL
-    private var timer: Timer?
+    private var refreshTimer: Timer?
+    private var carouselTimer: Timer?
     private var lastRefresh: Date?
     private var cancellables = Set<AnyCancellable>()
 
@@ -38,7 +40,15 @@ public final class SnapshotStore: ObservableObject {
         for r in runtimes { states[r.id] = ProviderState() }
         loadCache()
 
-        settings.$refreshMinutes.removeDuplicates().sink { [weak self] m in self?.schedule(minutes: m) }.store(in: &cancellables)
+        settings.$refreshMinutes
+            .removeDuplicates()
+            .sink { [weak self] m in self?.scheduleRefreshTimer(minutes: m) }
+            .store(in: &cancellables)
+
+        settings.$carouselSeconds
+            .removeDuplicates()
+            .sink { [weak self] s in self?.scheduleCarouselTimer(seconds: s) }
+            .store(in: &cancellables)
     }
 
     public var trackedProviders: [ProviderID] {
@@ -59,22 +69,48 @@ public final class SnapshotStore: ObservableObject {
 
     public var isRefreshing: Bool { states.values.contains(where: \.isRefreshing) }
 
-    private func schedule(minutes: Int) {
-        timer?.invalidate()
+    private func scheduleRefreshTimer(minutes: Int) {
+        refreshTimer?.invalidate()
         let interval = TimeInterval(max(minutes, SettingsStore.minimumRefreshMinutes) * 60)
-        timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+        let t = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
             Task { @MainActor in await self?.refresh() }
+        }
+        RunLoop.main.add(t, forMode: .common)
+        refreshTimer = t
+    }
+
+    private func scheduleCarouselTimer(seconds: Int) {
+        carouselTimer?.invalidate()
+        let interval = TimeInterval(max(seconds, 2))
+        let t = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                self.carouselTick &+= 1
+            }
+        }
+        RunLoop.main.add(t, forMode: .common)
+        carouselTimer = t
+    }
+
+    /// Triggered automatically when opening the popover if data is older than `maxAge` or any tracked provider has an error.
+    public func refreshIfStale(maxAge: TimeInterval = 60) async {
+        let hasError = trackedProviders.contains { states[$0]?.error != nil }
+        let isOld = lastUpdated.map { Date().timeIntervalSince($0) >= maxAge } ?? true
+        if hasError || isOld {
+            await refresh(manual: false)
         }
     }
 
-    /// - Parameter manual: user-initiated; throttled to once per 30 s (cached values are shown instead).
+    /// - Parameter manual: user-initiated; throttled to once per 15 s (unless a provider had an error, in which case we allow immediate retry).
     public func refresh(manual: Bool = false) async {
         let now = Date()
-        if manual, let last = lastRefresh, now.timeIntervalSince(last) < Self.manualThrottle { return }
+        let anyError = trackedProviders.contains { states[$0]?.error != nil }
+        if manual, !anyError, let last = lastRefresh, now.timeIntervalSince(last) < Self.manualThrottle { return }
         lastRefresh = now
 
         let due = runtimes.filter { r in
             guard settings.isTracked(r.id), let s = states[r.id], !s.isRefreshing else { return false }
+            if manual { return true }
             return (s.backoffUntil ?? .distantPast) <= now
         }
         guard !due.isEmpty else { return }

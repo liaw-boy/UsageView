@@ -7,62 +7,68 @@ struct DashboardView: View {
     @ObservedObject var settings: SettingsStore
     @ObservedObject var updater: UpdateService
     @ObservedObject var controller: StatusItemController
+    @State private var isHoveringCard = false
 
     var body: some View {
-        ZStack {
-            PanelBackdrop()
-            VStack(spacing: 12) {
+        TimelineView(.periodic(from: .now, by: 15)) { _ in
+            VStack(spacing: 8) {
                 header
                 if controller.showingSettings {
                     SettingsView(settings: settings, updater: updater)
                 } else {
-                    cardsList
+                    if store.panelProviders.count > 1 {
+                        panelModeToolbar
+                    }
+                    cardsContent
                 }
                 footer
             }
-            .padding(16)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .frame(width: 356)
+            .fixedSize(horizontal: false, vertical: true)
+            .background(PanelBackdrop())
+            .environment(\.colorScheme, .dark)
         }
-        .frame(width: 368)
-        .environment(\.colorScheme, .dark)
     }
 
+    // MARK: - Compact Header
+
     private var header: some View {
-        HStack(alignment: .center) {
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(controller.showingSettings ? "偏好設定" : "QuotaBar")
-                        .font(.system(size: 17, weight: .bold, design: .rounded))
+        HStack(alignment: .center, spacing: 6) {
+            Image(systemName: "waveform.path.ecg")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(Color(red: 0.54, green: 0.64, blue: 1.0))
+
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: 5) {
+                    Text(controller.showingSettings ? "偏好設定" : "TokenPulse")
+                        .font(.system(size: 15, weight: .bold, design: .rounded))
                         .foregroundStyle(.white)
-                    if controller.showingSettings {
-                        Text("v\(UpdateService.currentVersion)")
-                            .font(.system(size: 10.5, weight: .semibold, design: .rounded))
-                            .foregroundStyle(.white.opacity(0.6))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 1.5)
-                            .background(Color.white.opacity(0.10), in: Capsule())
-                    }
+                    Text("v\(UpdateService.currentVersion)")
+                        .font(.system(size: 9.5, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.55))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(Color.white.opacity(0.09), in: Capsule())
                 }
-                if let date = store.lastUpdated {
-                    Text("更新於 \(date, style: .relative)前 · 唯讀不耗額度")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.white.opacity(0.58))
-                } else {
-                    Text("唯讀查詢 · 零額度消耗")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.white.opacity(0.58))
-                }
+                Text(updatedSubtitle)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.white.opacity(0.56))
             }
+
             Spacer()
+
             Button {
                 settings.showRemaining.toggle()
             } label: {
-                Text(settings.showRemaining ? "顯示：剩餘" : "顯示：已用")
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                Text(settings.showRemaining ? "剩餘 %" : "已用 %")
+                    .font(.system(size: 10.5, weight: .semibold, design: .rounded))
                     .foregroundStyle(.white.opacity(0.92))
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 4.5)
-                    .background(Color.white.opacity(0.12), in: Capsule())
-                    .overlay(Capsule().strokeBorder(Color.white.opacity(0.18), lineWidth: 0.8))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3.5)
+                    .background(Color.white.opacity(0.11), in: Capsule())
+                    .overlay(Capsule().strokeBorder(Color.white.opacity(0.16), lineWidth: 0.8))
             }
             .buttonStyle(.plain)
             .help("點擊切換「已用 %」與「剩餘 %」")
@@ -71,51 +77,144 @@ struct DashboardView: View {
                 Task { await store.refresh(manual: true) }
             } label: {
                 Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 12.5, weight: .semibold))
+                    .font(.system(size: 11.5, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.92))
                     .rotationEffect(.degrees(store.isRefreshing ? 360 : 0))
                     .animation(
                         store.isRefreshing ? .linear(duration: 0.9).repeatForever(autoreverses: false) : .default,
                         value: store.isRefreshing
                     )
-                    .frame(width: 26, height: 26)
-                    .background(Color.white.opacity(0.12), in: Circle())
-                    .overlay(Circle().strokeBorder(Color.white.opacity(0.18), lineWidth: 0.8))
+                    .frame(width: 24, height: 24)
+                    .background(Color.white.opacity(0.11), in: Circle())
+                    .overlay(Circle().strokeBorder(Color.white.opacity(0.16), lineWidth: 0.8))
             }
             .buttonStyle(.plain)
-            .help("立即重新整理（30 秒節流保護）")
+            .help("立即重新整理")
         }
     }
 
+    private var updatedSubtitle: String {
+        guard let date = store.lastUpdated else { return "唯讀查詢 · 每 \(settings.refreshMinutes) 分鐘自動更新" }
+        let secs = max(0, Int(Date().timeIntervalSince(date)))
+        if secs < 30 { return "剛剛更新 · 每 \(settings.refreshMinutes)m 自動同步" }
+        if secs < 3600 { return "更新於 \(secs / 60) 分鐘前 · 每 \(settings.refreshMinutes)m 自動同步" }
+        return "更新於 \(secs / 3600) 小時前 · 點擊右上立即重試"
+    }
+
+    // MARK: - Panel Display Mode Toolbar (全部 / 單一 / 輪播)
+
+    private var panelModeToolbar: some View {
+        HStack(spacing: 6) {
+            // Mode pills: 全部 / 單一 / 輪播
+            HStack(spacing: 3) {
+                ForEach(MultiProviderDisplayMode.allCases, id: \.self) { mode in
+                    let active = settings.panelDisplayMode == mode
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.16)) {
+                            settings.panelDisplayMode = mode
+                        }
+                    } label: {
+                        HStack(spacing: 3) {
+                            Image(systemName: mode.icon)
+                                .font(.system(size: 9.5, weight: .semibold))
+                            Text(mode.title)
+                                .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                        }
+                        .foregroundStyle(active ? .white : .white.opacity(0.55))
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(
+                            Capsule().fill(active ? Color(red: 0.44, green: 0.42, blue: 0.96) : Color.clear)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(2)
+            .background(Color.white.opacity(0.08), in: Capsule())
+
+            Spacer()
+
+            // When in Single or Carousel mode, show quick provider selector pills on the right
+            if settings.panelDisplayMode != .all {
+                HStack(spacing: 4) {
+                    ForEach(store.panelProviders) { id in
+                        let isCurrent = activeSingleProvider == id
+                        let accent = Theme.brandColor(id)
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.16)) {
+                                settings.selectedSingleProvider = id
+                                if settings.panelDisplayMode == .carousel {
+                                    settings.panelDisplayMode = .single
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 3.5) {
+                                Circle().fill(accent).frame(width: 6, height: 6)
+                                Text(id.shortName)
+                                    .font(.system(size: 10.5, weight: .bold, design: .rounded))
+                            }
+                            .foregroundStyle(isCurrent ? .white : .white.opacity(0.50))
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(
+                                Capsule().fill(isCurrent ? accent.opacity(0.32) : Color.white.opacity(0.06))
+                            )
+                            .overlay(
+                                Capsule().strokeBorder(isCurrent ? accent.opacity(0.85) : Color.white.opacity(0.10), lineWidth: 0.8)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+    }
+
+    private var activeSingleProvider: ProviderID {
+        let visible = store.panelProviders
+        guard !visible.isEmpty else { return .claude }
+        if settings.panelDisplayMode == .carousel {
+            let idx = abs(store.carouselTick) % visible.count
+            return visible[idx]
+        }
+        if visible.contains(settings.selectedSingleProvider) {
+            return settings.selectedSingleProvider
+        }
+        return visible[0]
+    }
+
+    // MARK: - Cards Content
+
     @ViewBuilder
-    private var cardsList: some View {
+    private var cardsContent: some View {
         let visible = store.panelProviders
         if visible.isEmpty {
-            VStack(spacing: 8) {
+            VStack(spacing: 6) {
                 Image(systemName: "eye.slash")
-                    .font(.system(size: 22))
+                    .font(.system(size: 18))
                     .foregroundStyle(.white.opacity(0.45))
                 Text("目前未勾選任何面板顯示服務")
-                    .font(.system(size: 12.5, weight: .semibold))
+                    .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.85))
                 Button("前往設定調整") {
-                    withAnimation(.easeInOut(duration: 0.18)) { controller.showingSettings = true }
+                    withAnimation(.easeInOut(duration: 0.16)) { controller.showingSettings = true }
                 }
                 .buttonStyle(.plain)
-                .font(.system(size: 11.5, weight: .semibold))
+                .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(Color(red: 0.52, green: 0.65, blue: 1.0))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 4)
                 .background(Color.white.opacity(0.10), in: Capsule())
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 28)
+            .padding(.vertical, 18)
             .background(
-                RoundedRectangle(cornerRadius: 13, style: .continuous)
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
                     .fill(Color(red: 0.14, green: 0.16, blue: 0.23).opacity(0.92))
             )
-        } else {
-            VStack(spacing: 10) {
+        } else if settings.panelDisplayMode == .all || visible.count == 1 {
+            VStack(spacing: 7) {
                 ForEach(visible) { id in
                     ProviderCardView(
                         provider: id,
@@ -125,24 +224,37 @@ struct DashboardView: View {
                     )
                 }
             }
+        } else {
+            let current = activeSingleProvider
+            ProviderCardView(
+                provider: current,
+                state: store.states[current] ?? ProviderState(),
+                showRemaining: settings.showRemaining,
+                onToggleMode: { settings.showRemaining.toggle() }
+            )
+            .id(current)
+            .transition(.opacity.combined(with: .scale(scale: 0.98)))
+            .animation(.easeInOut(duration: 0.22), value: current)
         }
     }
+
+    // MARK: - Compact Footer
 
     private var footer: some View {
         HStack {
             Button {
-                withAnimation(.easeInOut(duration: 0.18)) {
+                withAnimation(.easeInOut(duration: 0.16)) {
                     controller.showingSettings.toggle()
                 }
             } label: {
-                HStack(spacing: 5) {
+                HStack(spacing: 4) {
                     Image(systemName: controller.showingSettings ? "chevron.left" : "slider.horizontal.3")
                     Text(controller.showingSettings ? "返回額度面板" : "設定與更新")
                 }
-                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .font(.system(size: 11.5, weight: .semibold, design: .rounded))
                 .foregroundStyle(.white.opacity(0.85))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 4)
                 .background(Color.white.opacity(0.10), in: Capsule())
             }
             .buttonStyle(.plain)
@@ -153,14 +265,13 @@ struct DashboardView: View {
                 NSApp.terminate(nil)
             }
             .buttonStyle(.plain)
-            .font(.system(size: 12, weight: .medium))
-            .foregroundStyle(.white.opacity(0.65))
+            .font(.system(size: 11.5, weight: .medium))
+            .foregroundStyle(.white.opacity(0.60))
         }
-        .padding(.top, 2)
     }
 }
 
-// MARK: - Provider Card
+// MARK: - Provider Card (Maximized Vertical Density)
 
 struct ProviderCardView: View {
     let provider: ProviderID
@@ -177,23 +288,23 @@ struct ProviderCardView: View {
     }
 
     var body: some View {
-        HStack(alignment: .center, spacing: 14) {
-            DualRingGauge(provider: provider, lines: lines, showRemaining: showRemaining)
-                .opacity(state.isStale ? 0.55 : 1.0)
+        HStack(alignment: .center, spacing: 11) {
+            DualRingGauge(provider: provider, lines: lines, showRemaining: showRemaining, size: 56, lineWidth: 5.5)
+                .opacity(state.isStale ? 0.65 : 1.0)
                 .onTapGesture(perform: onToggleMode)
 
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 6) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 5) {
                     Circle()
                         .fill(Theme.brandColor(provider))
-                        .frame(width: 7, height: 7)
+                        .frame(width: 6.5, height: 6.5)
                     Text(provider.displayName)
-                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
                         .foregroundStyle(.white)
 
                     if let error = state.error, state.snapshot != nil {
                         Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.system(size: 11))
+                            .font(.system(size: 10.5))
                             .foregroundStyle(.orange)
                             .help("更新失敗（顯示上次資料）：\(error)")
                     }
@@ -208,16 +319,16 @@ struct ProviderCardView: View {
                 if lines.isEmpty {
                     if let error = state.error {
                         Text(error)
-                            .font(.system(size: 11.5))
+                            .font(.system(size: 11))
                             .foregroundStyle(.orange)
                             .lineLimit(2)
                     } else {
                         Text(state.isRefreshing ? "讀取中…" : "No data")
-                            .font(.system(size: 11.5))
+                            .font(.system(size: 11))
                             .foregroundStyle(.white.opacity(0.55))
                     }
                 } else {
-                    VStack(spacing: 5) {
+                    VStack(spacing: 3.5) {
                         ForEach(lines) { line in
                             MetricBarRow(
                                 provider: provider,
@@ -227,17 +338,18 @@ struct ProviderCardView: View {
                             )
                         }
                     }
-                    .opacity(state.isStale ? 0.65 : 1.0)
+                    .opacity(state.isStale ? 0.78 : 1.0)
                 }
             }
         }
-        .padding(12)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8.5)
         .background(
-            RoundedRectangle(cornerRadius: 13, style: .continuous)
-                .fill(Color(red: 0.14, green: 0.16, blue: 0.23).opacity(0.92))
+            RoundedRectangle(cornerRadius: 11, style: .continuous)
+                .fill(Color(red: 0.14, green: 0.16, blue: 0.23).opacity(0.94))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 13, style: .continuous)
-                        .strokeBorder(Theme.brandColor(provider).opacity(isHovered ? 0.55 : 0.25), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: 11, style: .continuous)
+                        .strokeBorder(Theme.brandColor(provider).opacity(isHovered ? 0.55 : 0.24), lineWidth: 1)
                 )
         )
         .onHover { hovering in
@@ -260,26 +372,26 @@ private struct MetricBarRow: View {
         GeometryReader { geo in
             let fillWidth = max(4, geo.size.width * CGFloat(line.usedPercent / 100))
             ZStack(alignment: .leading) {
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
                     .fill(Color.white.opacity(0.08))
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
                     .fill(color.opacity(0.38))
                     .frame(width: fillWidth)
 
                 HStack(spacing: 4) {
                     Text(line.label)
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: 10.5, weight: .medium))
                         .foregroundStyle(.white.opacity(0.92))
                     Spacer()
                     Text(trailingText)
-                        .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                        .font(.system(size: 10, weight: .semibold, design: .rounded))
                         .monospacedDigit()
-                        .foregroundStyle(.white.opacity(0.78))
+                        .foregroundStyle(.white.opacity(0.80))
                 }
-                .padding(.horizontal, 8)
+                .padding(.horizontal, 7)
             }
         }
-        .frame(height: 22)
+        .frame(height: 19)
     }
 
     private var trailingText: String {
@@ -320,15 +432,15 @@ private struct PaceChip: View {
 
     var body: some View {
         Text(label)
-            .font(.system(size: 10, weight: .bold, design: .rounded))
+            .font(.system(size: 9.5, weight: .bold, design: .rounded))
             .foregroundStyle(tint)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 2)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 1.5)
             .background(tint.opacity(0.20), in: Capsule())
     }
 }
 
-// MARK: - Redesigned Settings View (Cohesive Dark Cards)
+// MARK: - Redesigned Compact Settings View
 
 struct SettingsView: View {
     @ObservedObject var settings: SettingsStore
@@ -336,8 +448,9 @@ struct SettingsView: View {
     @State private var launchAtLogin = LaunchAtLogin.isEnabled
 
     var body: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 8) {
             providerMatrixCard
+            displayModeCard
             scheduleAndAlertsCard
             updateCard
         }
@@ -346,31 +459,20 @@ struct SettingsView: View {
     // 1. 三層獨立控制矩陣：啟動追蹤 / 面板顯示 / 狀態列顯示
     private var providerMatrixCard: some View {
         SettingsCard(title: "服務追蹤與顯示位置", icon: "square.stack.3d.up.fill") {
-            VStack(spacing: 8) {
-                HStack {
-                    Text("服務名稱")
-                        .font(.system(size: 10.5, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.5))
-                    Spacer()
-                    Text("啟動追蹤 / 展開面板 / 狀態列")
-                        .font(.system(size: 10.5, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.5))
-                }
-                .padding(.bottom, 2)
-
+            VStack(spacing: 6) {
                 ForEach(ProviderID.allCases) { id in
                     let tracked = settings.isTracked(id)
                     let inPanel = settings.isShownInPanel(id)
                     let inBar = settings.isShownInMenuBar(id)
                     let accent = Theme.brandColor(id)
 
-                    HStack(spacing: 8) {
+                    HStack(spacing: 6) {
                         Circle()
                             .fill(accent)
-                            .frame(width: 8, height: 8)
+                            .frame(width: 7, height: 7)
                             .opacity(tracked ? 1.0 : 0.35)
                         Text(id.displayName)
-                            .font(.system(size: 12.5, weight: .semibold, design: .rounded))
+                            .font(.system(size: 12, weight: .semibold, design: .rounded))
                             .foregroundStyle(.white.opacity(tracked ? 0.95 : 0.45))
 
                         Spacer()
@@ -402,47 +504,83 @@ struct SettingsView: View {
                             settings.setShownInMenuBar(id, !inBar)
                         }
                     }
-                    .padding(.vertical, 3)
                 }
-
-                Divider().overlay(Color.white.opacity(0.10))
-
-                SettingsToggleRow(
-                    title: "狀態列自動只顯示最緊張的一家",
-                    subtitle: "勾選多家時，狀態列僅保留 5h 用量最高者",
-                    isOn: $settings.menuBarOnlyTightest
-                )
             }
         }
     }
 
-    // 2. 更新頻率與提醒設定
-    private var scheduleAndAlertsCard: some View {
-        SettingsCard(title: "更新頻率與提醒", icon: "bell.badge.fill") {
-            VStack(alignment: .leading, spacing: 10) {
-                VStack(alignment: .leading, spacing: 6) {
+    // 2. 多 AI 顯示模式（單一 / 輪播 / 全部）
+    private var displayModeCard: some View {
+        SettingsCard(title: "多 AI 顯示與輪播設定", icon: "arrow.triangle.2.circlepath") {
+            VStack(alignment: .leading, spacing: 7) {
+                HStack {
+                    Text("狀態列顯示")
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.9))
+                    Spacer()
+                    ModeSegmentedPicker(selection: $settings.menuBarDisplayMode)
+                }
+
+                HStack {
+                    Text("展開面板顯示")
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.9))
+                    Spacer()
+                    ModeSegmentedPicker(selection: $settings.panelDisplayMode)
+                }
+
+                if settings.menuBarDisplayMode == .single || settings.panelDisplayMode == .single {
                     HStack {
-                        Text("背景自動更新間隔")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.9))
+                        Text("單一模式固定顯示")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.75))
                         Spacer()
-                        Text("每 \(settings.refreshMinutes) 分鐘")
-                            .font(.system(size: 11, weight: .semibold, design: .rounded))
-                            .foregroundStyle(Color(red: 0.52, green: 0.68, blue: 1.0))
+                        HStack(spacing: 4) {
+                            ForEach(ProviderID.allCases) { id in
+                                let sel = settings.selectedSingleProvider == id
+                                Button {
+                                    settings.selectedSingleProvider = id
+                                } label: {
+                                    Text(id.displayName)
+                                        .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                                        .foregroundStyle(sel ? .white : .white.opacity(0.55))
+                                        .padding(.horizontal, 7)
+                                        .padding(.vertical, 3)
+                                        .background(
+                                            Capsule().fill(sel ? Theme.brandColor(id).opacity(0.38) : Color.white.opacity(0.07))
+                                        )
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
                     }
-                    HStack(spacing: 6) {
+                }
+            }
+        }
+    }
+
+    // 3. 更新頻率與提醒設定
+    private var scheduleAndAlertsCard: some View {
+        SettingsCard(title: "自動更新頻率與提醒", icon: "bell.badge.fill") {
+            VStack(alignment: .leading, spacing: 7) {
+                HStack {
+                    Text("背景自動更新")
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.9))
+                    Spacer()
+                    HStack(spacing: 4) {
                         ForEach(SettingsStore.refreshOptions, id: \.self) { m in
                             let selected = settings.refreshMinutes == m
                             Button {
                                 settings.refreshMinutes = m
                             } label: {
                                 Text("\(m)m")
-                                    .font(.system(size: 11, weight: .bold, design: .rounded))
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 5)
-                                    .foregroundStyle(selected ? .white : .white.opacity(0.62))
+                                    .font(.system(size: 10.5, weight: .bold, design: .rounded))
+                                    .padding(.horizontal, 7)
+                                    .padding(.vertical, 3.5)
+                                    .foregroundStyle(selected ? .white : .white.opacity(0.58))
                                     .background(
-                                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                        RoundedRectangle(cornerRadius: 6, style: .continuous)
                                             .fill(selected ? Color(red: 0.44, green: 0.42, blue: 0.96) : Color.white.opacity(0.08))
                                     )
                             }
@@ -455,13 +593,13 @@ struct SettingsView: View {
 
                 SettingsToggleRow(
                     title: "用量超過 80% / 95% 時發送通知",
-                    subtitle: "每個重設週期只會提醒一次",
+                    subtitle: "每個重設週期只提醒一次",
                     isOn: $settings.notificationsEnabled
                 )
 
                 SettingsToggleRow(
                     title: "登入 macOS 時自動啟動",
-                    subtitle: "以無 Dock 圖示背景常駐狀態列",
+                    subtitle: "無 Dock 圖示常駐狀態列",
                     isOn: $launchAtLogin
                 )
                 .onChange(of: launchAtLogin) { _, newValue in
@@ -471,59 +609,57 @@ struct SettingsView: View {
         }
     }
 
-    // 3. GitHub 自動檢查與更新
+    // 4. GitHub 自動檢查與更新
     private var updateCard: some View {
         SettingsCard(title: "版本與 GitHub 更新", icon: "arrow.triangle.2.circlepath.circle.fill") {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(alignment: .center) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("目前版本 v\(UpdateService.currentVersion)")
-                            .font(.system(size: 12, weight: .semibold, design: .rounded))
-                            .foregroundStyle(.white.opacity(0.92))
-                        Text(statusDescription)
-                            .font(.system(size: 10.5))
-                            .foregroundStyle(statusColor)
-                            .lineLimit(2)
-                    }
-                    Spacer()
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 1.5) {
+                    Text("TokenPulse v\(UpdateService.currentVersion)")
+                        .font(.system(size: 11.5, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.92))
+                    Text(statusDescription)
+                        .font(.system(size: 10))
+                        .foregroundStyle(statusColor)
+                        .lineLimit(2)
+                }
+                Spacer()
 
-                    if case .available(let version, _, _) = updater.status {
-                        Button {
-                            Task { await updater.performUpdate() }
-                        } label: {
-                            HStack(spacing: 4) {
-                                Image(systemName: "arrow.down.circle.fill")
-                                Text("更新至 v\(version)")
-                            }
-                            .font(.system(size: 11, weight: .bold, design: .rounded))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5.5)
-                            .background(Color(red: 0.25, green: 0.78, blue: 0.52), in: Capsule())
+                if case .available(let version, _, _) = updater.status {
+                    Button {
+                        Task { await updater.performUpdate() }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.down.circle.fill")
+                            Text("更新至 v\(version)")
                         }
-                        .buttonStyle(.plain)
-                    } else {
-                        Button {
-                            Task { await updater.checkForUpdates() }
-                        } label: {
-                            HStack(spacing: 4) {
-                                if updater.status == .checking {
-                                    ProgressView().controlSize(.mini)
-                                } else {
-                                    Image(systemName: "icloud.and.arrow.down")
-                                }
-                                Text(updater.status == .checking ? "檢查中…" : "檢查更新")
-                            }
-                            .font(.system(size: 11, weight: .semibold, design: .rounded))
-                            .foregroundStyle(.white.opacity(0.9))
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5.5)
-                            .background(Color.white.opacity(0.12), in: Capsule())
-                            .overlay(Capsule().strokeBorder(Color.white.opacity(0.18), lineWidth: 0.8))
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(updater.status == .checking)
+                        .font(.system(size: 10.5, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 4.5)
+                        .background(Color(red: 0.25, green: 0.78, blue: 0.52), in: Capsule())
                     }
+                    .buttonStyle(.plain)
+                } else {
+                    Button {
+                        Task { await updater.checkForUpdates() }
+                    } label: {
+                        HStack(spacing: 4) {
+                            if updater.status == .checking {
+                                ProgressView().controlSize(.mini)
+                            } else {
+                                Image(systemName: "icloud.and.arrow.down")
+                            }
+                            Text(updater.status == .checking ? "檢查中…" : "檢查更新")
+                        }
+                        .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.9))
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 4.5)
+                        .background(Color.white.opacity(0.12), in: Capsule())
+                        .overlay(Capsule().strokeBorder(Color.white.opacity(0.18), lineWidth: 0.8))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(updater.status == .checking)
                 }
             }
         }
@@ -544,12 +680,43 @@ struct SettingsView: View {
         switch updater.status {
         case .available: Color(red: 0.30, green: 0.88, blue: 0.56)
         case .failed: .orange
-        default: .white.opacity(0.58)
+        default: .white.opacity(0.56)
         }
     }
 }
 
 // MARK: - Reusable Settings Components
+
+private struct ModeSegmentedPicker: View {
+    @Binding var selection: MultiProviderDisplayMode
+
+    var body: some View {
+        HStack(spacing: 3) {
+            ForEach(MultiProviderDisplayMode.allCases, id: \.self) { mode in
+                let active = selection == mode
+                Button {
+                    selection = mode
+                } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: mode.icon)
+                            .font(.system(size: 9, weight: .bold))
+                        Text(mode.title)
+                            .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                    }
+                    .foregroundStyle(active ? .white : .white.opacity(0.55))
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(
+                        Capsule().fill(active ? Color(red: 0.44, green: 0.42, blue: 0.96) : Color.clear)
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(2)
+        .background(Color.white.opacity(0.08), in: Capsule())
+    }
+}
 
 private struct SettingsCard<Content: View>: View {
     let title: String
@@ -557,24 +724,24 @@ private struct SettingsCard<Content: View>: View {
     @ViewBuilder let content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            HStack(spacing: 6) {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 5) {
                 Image(systemName: icon)
-                    .font(.system(size: 11.5, weight: .semibold))
+                    .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(Color(red: 0.56, green: 0.64, blue: 1.0))
                 Text(title)
-                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .font(.system(size: 11.5, weight: .bold, design: .rounded))
                     .foregroundStyle(.white.opacity(0.92))
             }
             content
         }
-        .padding(12)
+        .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 13, style: .continuous)
-                .fill(Color(red: 0.14, green: 0.16, blue: 0.23).opacity(0.92))
+            RoundedRectangle(cornerRadius: 11, style: .continuous)
+                .fill(Color(red: 0.14, green: 0.16, blue: 0.23).opacity(0.94))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 13, style: .continuous)
+                    RoundedRectangle(cornerRadius: 11, style: .continuous)
                         .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
                 )
         )
@@ -590,15 +757,15 @@ private struct PillToggleButton: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 3.5) {
+            HStack(spacing: 3) {
                 Image(systemName: icon)
-                    .font(.system(size: 9.5, weight: .bold))
+                    .font(.system(size: 9, weight: .bold))
                 Text(title)
-                    .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
             }
             .foregroundStyle(isOn ? .white : .white.opacity(0.42))
-            .padding(.horizontal, 7.5)
-            .padding(.vertical, 4)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3.5)
             .background(
                 Capsule()
                     .fill(isOn ? accent.opacity(0.32) : Color.white.opacity(0.06))
@@ -619,12 +786,12 @@ private struct SettingsToggleRow: View {
 
     var body: some View {
         HStack {
-            VStack(alignment: .leading, spacing: 1.5) {
+            VStack(alignment: .leading, spacing: 1) {
                 Text(title)
-                    .font(.system(size: 11.5, weight: .medium))
+                    .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.white.opacity(0.92))
                 Text(subtitle)
-                    .font(.system(size: 10))
+                    .font(.system(size: 9.5))
                     .foregroundStyle(.white.opacity(0.50))
             }
             Spacer()

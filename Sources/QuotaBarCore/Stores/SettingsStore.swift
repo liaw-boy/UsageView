@@ -1,6 +1,29 @@
 import Combine
 import Foundation
 
+/// How multiple enabled AI providers are presented in the Menu Bar or Dashboard Panel.
+public enum MultiProviderDisplayMode: String, CaseIterable, Codable, Sendable {
+    case all       // 全部並排
+    case single    // 單一顯示
+    case carousel  // 自動輪播
+
+    public var title: String {
+        switch self {
+        case .all: "全部"
+        case .single: "單一"
+        case .carousel: "輪播"
+        }
+    }
+
+    public var icon: String {
+        switch self {
+        case .all: "rectangle.grid.1x2.fill"
+        case .single: "1.circle.fill"
+        case .carousel: "arrow.triangle.2.circlepath"
+        }
+    }
+}
+
 @MainActor
 public final class SettingsStore: ObservableObject {
     private let defaults: UserDefaults
@@ -26,9 +49,21 @@ public final class SettingsStore: ObservableObject {
     @Published public var menuBarProviders: Set<ProviderID> {
         didSet { defaults.set(menuBarProviders.map(\.rawValue), forKey: "menuBarProviders") }
     }
-    /// 狀態列是否自動只顯示已勾選中最緊張（5h 用量最高）的那一家
-    @Published public var menuBarOnlyTightest: Bool {
-        didSet { defaults.set(menuBarOnlyTightest, forKey: "menuBarOnlyTightest") }
+    /// 狀態列多 AI 顯示模式：全部 / 單一（最緊張） / 輪播
+    @Published public var menuBarDisplayMode: MultiProviderDisplayMode {
+        didSet { defaults.set(menuBarDisplayMode.rawValue, forKey: "menuBarDisplayMode") }
+    }
+    /// 展開面板多 AI 顯示模式：全部 / 單一（可切換） / 輪播
+    @Published public var panelDisplayMode: MultiProviderDisplayMode {
+        didSet { defaults.set(panelDisplayMode.rawValue, forKey: "panelDisplayMode") }
+    }
+    /// 單一模式下目前選中的 Provider
+    @Published public var selectedSingleProvider: ProviderID {
+        didSet { defaults.set(selectedSingleProvider.rawValue, forKey: "selectedSingleProvider") }
+    }
+    /// 輪播間隔秒數
+    @Published public var carouselSeconds: Int {
+        didSet { defaults.set(carouselSeconds, forKey: "carouselSeconds") }
     }
 
     public static let refreshOptions = [2, 5, 10, 15, 30]
@@ -40,7 +75,12 @@ public final class SettingsStore: ObservableObject {
         refreshMinutes = max(m == 0 ? 5 : m, Self.minimumRefreshMinutes)
         showRemaining = defaults.bool(forKey: "showRemaining")
         notificationsEnabled = defaults.object(forKey: "notifications") as? Bool ?? true
-        menuBarOnlyTightest = defaults.bool(forKey: "menuBarOnlyTightest")
+
+        menuBarDisplayMode = MultiProviderDisplayMode(rawValue: defaults.string(forKey: "menuBarDisplayMode") ?? "") ?? .all
+        panelDisplayMode = MultiProviderDisplayMode(rawValue: defaults.string(forKey: "panelDisplayMode") ?? "") ?? .all
+        selectedSingleProvider = ProviderID(rawValue: defaults.string(forKey: "selectedSingleProvider") ?? "") ?? .claude
+        let cs = defaults.integer(forKey: "carouselSeconds")
+        carouselSeconds = cs > 0 ? cs : 4
 
         let all = Set(ProviderID.allCases)
         let initialTracked: Set<ProviderID>
