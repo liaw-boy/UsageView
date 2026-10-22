@@ -148,6 +148,13 @@ public final class SettingsStore: ObservableObject {
     public func isShownInPanel(_ id: ProviderID) -> Bool { isTracked(id) && panelProviders.contains(id) }
     public func isShownInMenuBar(_ id: ProviderID) -> Bool { isTracked(id) && menuBarProviders.contains(id) }
 
+    /// Providers eligible for the "單一顯示" selector in Settings (only tracked providers enabled in the menu bar).
+    public var availableMenuBarProviders: [ProviderID] {
+        let inBar = ProviderID.allCases.filter { isShownInMenuBar($0) }
+        if !inBar.isEmpty { return inBar }
+        return ProviderID.allCases.filter { isTracked($0) }
+    }
+
     // MARK: - Mutations with smart cascade
 
     public func setTracked(_ id: ProviderID, _ on: Bool) {
@@ -160,6 +167,7 @@ public final class SettingsStore: ObservableObject {
             panelProviders.remove(id)
             menuBarProviders.remove(id)
         }
+        syncSelectedSingleProvider()
     }
 
     public func setShownInPanel(_ id: ProviderID, _ on: Bool) {
@@ -177,6 +185,14 @@ public final class SettingsStore: ObservableObject {
             menuBarProviders.insert(id)
         } else {
             menuBarProviders.remove(id)
+        }
+        syncSelectedSingleProvider()
+    }
+
+    private func syncSelectedSingleProvider() {
+        let valid = availableMenuBarProviders
+        if !valid.contains(selectedSingleProvider), let first = valid.first {
+            selectedSingleProvider = first
         }
     }
 }

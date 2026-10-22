@@ -458,7 +458,7 @@ struct SettingsView: View {
                 }
 
                 // Immediately below "狀態列模式" when ".single" is selected!
-                if settings.menuBarDisplayMode == .single {
+                if settings.menuBarDisplayMode == .single && !settings.availableMenuBarProviders.isEmpty {
                     HStack(spacing: 6) {
                         Text("單一顯示")
                             .font(.system(size: 11, weight: .medium))
@@ -467,7 +467,7 @@ struct SettingsView: View {
                             .fixedSize(horizontal: true, vertical: false)
                         Spacer(minLength: 4)
                         HStack(spacing: 4) {
-                            ForEach(ProviderID.allCases) { id in
+                            ForEach(settings.availableMenuBarProviders) { id in
                                 let sel = settings.selectedSingleProvider == id
                                 Button {
                                     settings.selectedSingleProvider = id
