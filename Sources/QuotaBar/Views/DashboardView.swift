@@ -9,7 +9,7 @@ struct DashboardView: View {
 
     var body: some View {
         ZStack {
-            GlassBackground()
+            PanelBackdrop()
             VStack(spacing: 12) {
                 header
                 if controller.showingSettings {
@@ -22,6 +22,7 @@ struct DashboardView: View {
             .padding(16)
         }
         .frame(width: 356)
+        .environment(\.colorScheme, .dark)
     }
 
     private var header: some View {
@@ -29,14 +30,15 @@ struct DashboardView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("QuotaBar")
                     .font(.system(size: 17, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
                 if let date = store.lastUpdated {
                     Text("更新於 \(date, style: .relative)前")
                         .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.white.opacity(0.62))
                 } else {
                     Text("唯讀查詢 · 零額度消耗")
                         .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.white.opacity(0.62))
                 }
             }
             Spacer()
@@ -44,10 +46,12 @@ struct DashboardView: View {
                 settings.showRemaining.toggle()
             } label: {
                 Text(settings.showRemaining ? "顯示：剩餘" : "顯示：已用")
-                    .font(.system(size: 11, weight: .medium, design: .rounded))
-                    .padding(.horizontal, 8)
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.9))
+                    .padding(.horizontal, 9)
                     .padding(.vertical, 4)
-                    .background(.quaternary.opacity(0.6), in: Capsule())
+                    .background(Color.white.opacity(0.12), in: Capsule())
+                    .overlay(Capsule().strokeBorder(Color.white.opacity(0.16), lineWidth: 0.8))
             }
             .buttonStyle(.plain)
             .help("點擊切換「已用 %」與「剩餘 %」")
@@ -56,14 +60,16 @@ struct DashboardView: View {
                 Task { await store.refresh(manual: true) }
             } label: {
                 Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.9))
                     .rotationEffect(.degrees(store.isRefreshing ? 360 : 0))
                     .animation(
                         store.isRefreshing ? .linear(duration: 0.9).repeatForever(autoreverses: false) : .default,
                         value: store.isRefreshing
                     )
                     .frame(width: 26, height: 26)
-                    .background(.quaternary.opacity(0.5), in: Circle())
+                    .background(Color.white.opacity(0.12), in: Circle())
+                    .overlay(Circle().strokeBorder(Color.white.opacity(0.16), lineWidth: 0.8))
             }
             .buttonStyle(.plain)
             .help("立即重新整理（30 秒節流保護）")
@@ -94,7 +100,7 @@ struct DashboardView: View {
                     .font(.system(size: 12, weight: .medium))
             }
             .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(.white.opacity(0.72))
 
             Spacer()
 
@@ -103,7 +109,7 @@ struct DashboardView: View {
             }
             .buttonStyle(.plain)
             .font(.system(size: 12, weight: .medium))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(.white.opacity(0.72))
         }
         .padding(.top, 2)
     }
@@ -137,7 +143,8 @@ struct ProviderCardView: View {
                         .fill(Theme.brandColor(provider))
                         .frame(width: 7, height: 7)
                     Text(provider.displayName)
-                        .font(.system(size: 14, weight: .semibold, design: .rounded))
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
 
                     if let error = state.error, state.snapshot != nil {
                         Image(systemName: "exclamationmark.triangle.fill")
@@ -162,7 +169,7 @@ struct ProviderCardView: View {
                     } else {
                         Text(state.isRefreshing ? "讀取中…" : "No data")
                             .font(.system(size: 11.5))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(.white.opacity(0.55))
                     }
                 } else {
                     VStack(spacing: 5) {
@@ -182,10 +189,10 @@ struct ProviderCardView: View {
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: 13, style: .continuous)
-                .fill(.ultraThinMaterial)
+                .fill(Color(red: 0.14, green: 0.16, blue: 0.23).opacity(0.92))
                 .overlay(
                     RoundedRectangle(cornerRadius: 13, style: .continuous)
-                        .strokeBorder(Theme.brandColor(provider).opacity(isHovered ? 0.45 : 0.18), lineWidth: 1)
+                        .strokeBorder(Theme.brandColor(provider).opacity(isHovered ? 0.55 : 0.25), lineWidth: 1)
                 )
         )
         .onHover { hovering in
@@ -209,19 +216,20 @@ private struct MetricBarRow: View {
             let fillWidth = max(4, geo.size.width * CGFloat(line.usedPercent / 100))
             ZStack(alignment: .leading) {
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(color.opacity(0.13))
+                    .fill(Color.white.opacity(0.08))
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(color.opacity(0.32))
+                    .fill(color.opacity(0.38))
                     .frame(width: fillWidth)
 
                 HStack(spacing: 4) {
                     Text(line.label)
                         .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.92))
                     Spacer()
                     Text(trailingText)
-                        .font(.system(size: 10.5, weight: .medium, design: .rounded))
+                        .font(.system(size: 10.5, weight: .semibold, design: .rounded))
                         .monospacedDigit()
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.white.opacity(0.78))
                 }
                 .padding(.horizontal, 8)
             }
@@ -259,19 +267,19 @@ private struct PaceChip: View {
 
     private var tint: Color {
         switch pace {
-        case .relaxed: .green
-        case .onTrack: .blue
-        case .fast: .orange
+        case .relaxed: Color(red: 0.30, green: 0.88, blue: 0.56)
+        case .onTrack: Color(red: 0.45, green: 0.72, blue: 1.00)
+        case .fast: Color(red: 1.00, green: 0.68, blue: 0.24)
         }
     }
 
     var body: some View {
         Text(label)
-            .font(.system(size: 10, weight: .semibold, design: .rounded))
+            .font(.system(size: 10, weight: .bold, design: .rounded))
             .foregroundStyle(tint)
-            .padding(.horizontal, 6)
+            .padding(.horizontal, 7)
             .padding(.vertical, 2)
-            .background(tint.opacity(0.16), in: Capsule())
+            .background(tint.opacity(0.20), in: Capsule())
     }
 }
 
@@ -304,7 +312,7 @@ struct SettingsView: View {
                         )) {
                             HStack(spacing: 6) {
                                 Circle().fill(Theme.brandColor(id)).frame(width: 8, height: 8)
-                                Text(id.displayName)
+                                Text(id.displayName).foregroundStyle(.white)
                             }
                         }
                     }
@@ -316,7 +324,7 @@ struct SettingsView: View {
             GroupBox("更新與提醒") {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
-                        Text("自動更新間隔")
+                        Text("自動更新間隔").foregroundStyle(.white)
                         Spacer()
                         Picker("", selection: $settings.refreshMinutes) {
                             ForEach(SettingsStore.refreshOptions, id: \.self) { m in
@@ -338,16 +346,17 @@ struct SettingsView: View {
     }
 }
 
-// MARK: - Frosted Glass Background
+// MARK: - Rich Opaque Navy-Indigo Backdrop
 
-struct GlassBackground: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let v = NSVisualEffectView()
-        v.material = .hudWindow
-        v.blendingMode = .behindWindow
-        v.state = .active
-        return v
+struct PanelBackdrop: View {
+    var body: some View {
+        LinearGradient(
+            colors: [
+                Color(red: 0.08, green: 0.09, blue: 0.14).opacity(0.97),
+                Color(red: 0.11, green: 0.10, blue: 0.19).opacity(0.97),
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
     }
-
-    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
 }

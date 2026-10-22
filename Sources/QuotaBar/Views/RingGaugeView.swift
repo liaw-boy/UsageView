@@ -6,18 +6,18 @@ import SwiftUI
 enum Theme {
     static func brandColor(_ id: ProviderID) -> Color {
         switch id {
-        case .claude: Color(red: 0.95, green: 0.52, blue: 0.38)      // Warm Coral
-        case .codex: Color(red: 0.28, green: 0.85, blue: 0.72)       // Mint Teal
-        case .antigravity: Color(red: 0.48, green: 0.42, blue: 0.98) // Electric Indigo
+        case .claude: Color(red: 0.96, green: 0.55, blue: 0.40)      // Warm Coral
+        case .codex: Color(red: 0.30, green: 0.88, blue: 0.74)       // Mint Teal
+        case .antigravity: Color(red: 0.52, green: 0.46, blue: 1.00) // Electric Indigo
         }
     }
 
-    static let antigravitySecondary = Color(red: 0.72, green: 0.44, blue: 0.98) // Violet for 3p pool
+    static let antigravitySecondary = Color(red: 0.76, green: 0.48, blue: 1.00) // Violet for 3p pool
 
     /// Overrides the brand accent with Amber (>80%) or Crimson (>95%) when quota runs hot.
     static func ringColor(for id: ProviderID, usedPercent: Double, secondaryPool: Bool = false) -> Color {
-        if usedPercent >= 95 { return Color(red: 0.98, green: 0.28, blue: 0.36) }
-        if usedPercent >= 80 { return Color(red: 0.98, green: 0.72, blue: 0.22) }
+        if usedPercent >= 95 { return Color(red: 1.00, green: 0.32, blue: 0.38) }
+        if usedPercent >= 80 { return Color(red: 1.00, green: 0.75, blue: 0.24) }
         if id == .antigravity && secondaryPool { return antigravitySecondary }
         return brandColor(id)
     }
@@ -31,7 +31,7 @@ enum Theme {
 // MARK: - Concentric Dual-Ring Gauge
 
 /// Outer ring = 5-hour session window; Inner ring = weekly window.
-/// For Antigravity, the outer and inner rings split into two 170° arcs (Gemini vs Claude/GPT pools).
+/// For Antigravity, the outer and inner rings split into two arcs (Gemini vs Claude/GPT pools).
 struct DualRingGauge: View {
     let provider: ProviderID
     let lines: [MetricLine]
@@ -47,24 +47,33 @@ struct DualRingGauge: View {
         lines.filter { $0.kind == .weekly }.map(\.usedPercent).max() ?? 0
     }
 
+    private var innerInset: CGFloat {
+        size < 24 ? (lineWidth + 1.2) : (lineWidth + 3.5)
+    }
+
     var body: some View {
         ZStack {
             if provider == .antigravity, hasSplitPools {
                 splitRing(kind: .session, inset: 0)
-                splitRing(kind: .weekly, inset: lineWidth + 3.5)
+                if size >= 24 {
+                    splitRing(kind: .weekly, inset: innerInset)
+                }
             } else {
                 singleRing(used: sessionUsed, inset: 0)
-                singleRing(used: weeklyUsed, inset: lineWidth + 3.5)
+                if size >= 24 {
+                    singleRing(used: weeklyUsed, inset: innerInset)
+                }
             }
 
             if size >= 50 {
                 VStack(spacing: -1) {
                     Text(Theme.formattedPercent(sessionUsed, showRemaining: showRemaining))
                         .font(.system(size: size * 0.23, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
                         .monospacedDigit()
                     Text(showRemaining ? "剩餘" : "5h")
                         .font(.system(size: size * 0.13, weight: .medium, design: .rounded))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.white.opacity(0.65))
                 }
             }
         }
@@ -84,7 +93,7 @@ struct DualRingGauge: View {
         ZStack {
             Circle()
                 .inset(by: inset + lineWidth / 2)
-                .stroke(color.opacity(0.16), lineWidth: lineWidth)
+                .stroke(color.opacity(0.25), lineWidth: lineWidth)
             Circle()
                 .inset(by: inset + lineWidth / 2)
                 .trim(from: 0, to: progress)
@@ -104,24 +113,24 @@ struct DualRingGauge: View {
             // Left half: Gemini (0...0.46)
             Circle()
                 .inset(by: inset + lineWidth / 2)
-                .trim(from: 0.02, to: 0.48)
-                .stroke(c1.opacity(0.18), style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                .trim(from: 0.03, to: 0.47)
+                .stroke(c1.opacity(0.25), style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                 .rotationEffect(.degrees(-90))
             Circle()
                 .inset(by: inset + lineWidth / 2)
-                .trim(from: 0.02, to: 0.02 + 0.46 * min(max(geminiUsed / 100, 0.01), 1))
+                .trim(from: 0.03, to: 0.03 + 0.44 * min(max(geminiUsed / 100, 0.01), 1))
                 .stroke(c1, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                 .rotationEffect(.degrees(-90))
 
-            // Right half: Claude/GPT (0.52...0.98)
+            // Right half: Claude/GPT (0.53...0.97)
             Circle()
                 .inset(by: inset + lineWidth / 2)
-                .trim(from: 0.52, to: 0.98)
-                .stroke(c2.opacity(0.18), style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                .trim(from: 0.53, to: 0.97)
+                .stroke(c2.opacity(0.25), style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                 .rotationEffect(.degrees(-90))
             Circle()
                 .inset(by: inset + lineWidth / 2)
-                .trim(from: 0.52, to: 0.52 + 0.46 * min(max(thirdPartyUsed / 100, 0.01), 1))
+                .trim(from: 0.53, to: 0.53 + 0.44 * min(max(thirdPartyUsed / 100, 0.01), 1))
                 .stroke(c2, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                 .rotationEffect(.degrees(-90))
         }
@@ -133,6 +142,9 @@ struct DualRingGauge: View {
 struct MenuBarStripView: View {
     @ObservedObject var store: SnapshotStore
     @ObservedObject var settings: SettingsStore
+
+    private static let pillFill = Color(red: 0.11, green: 0.12, blue: 0.17).opacity(0.92)
+    private static let pillStroke = Color.white.opacity(0.20)
 
     private var activeItems: [(ProviderID, ProviderSnapshot)] {
         let all = store.enabledProviders.compactMap { id -> (ProviderID, ProviderSnapshot)? in
@@ -150,16 +162,22 @@ struct MenuBarStripView: View {
     }
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 5) {
             if activeItems.isEmpty {
                 HStack(spacing: 4) {
                     Image(systemName: "chart.pie.fill")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.white)
                     if settings.menuBarMode != .iconOnly {
                         Text("QuotaBar")
-                            .font(.system(size: 11.5, weight: .semibold, design: .rounded))
+                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                            .foregroundStyle(.white)
                     }
                 }
+                .padding(.horizontal, 7)
+                .padding(.vertical, 2.5)
+                .background(Self.pillFill, in: Capsule())
+                .overlay(Capsule().strokeBorder(Self.pillStroke, lineWidth: 0.8))
             } else {
                 ForEach(activeItems, id: \.0) { id, snap in
                     HStack(spacing: 4) {
@@ -167,19 +185,24 @@ struct MenuBarStripView: View {
                             provider: id,
                             lines: snap.lines,
                             showRemaining: settings.showRemaining,
-                            size: 15,
-                            lineWidth: 2.0
+                            size: 13,
+                            lineWidth: 2.2
                         )
                         if let p = snap.sessionPercent {
                             Text("\(id.shortName) \(Theme.formattedPercent(p, showRemaining: settings.showRemaining))")
-                                .font(.system(size: 11.5, weight: .semibold, design: .rounded))
+                                .font(.system(size: 11, weight: .bold, design: .rounded))
+                                .foregroundStyle(.white)
                                 .monospacedDigit()
                         }
                     }
+                    .padding(.horizontal, 6.5)
+                    .padding(.vertical, 2)
+                    .background(Self.pillFill, in: Capsule())
+                    .overlay(Capsule().strokeBorder(Self.pillStroke, lineWidth: 0.8))
                 }
             }
         }
-        .padding(.horizontal, 4)
-        .padding(.vertical, 2)
+        .padding(.horizontal, 2)
+        .environment(\.colorScheme, .dark)
     }
 }
