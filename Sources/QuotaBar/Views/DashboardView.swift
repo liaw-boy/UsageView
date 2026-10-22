@@ -47,6 +47,30 @@ struct DashboardView: View {
                         .padding(.horizontal, 5)
                         .padding(.vertical, 1)
                         .background(Color.white.opacity(0.08), in: Capsule())
+
+                    if case .available(let newVer, _, _) = updater.status {
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.16)) {
+                                controller.showingSettings = true
+                            }
+                            Task { await updater.performUpdate() }
+                        } label: {
+                            HStack(spacing: 3) {
+                                Image(systemName: "arrow.down.circle.fill")
+                                    .font(.system(size: 9.5, weight: .bold))
+                                Text("有新版 v\(newVer)")
+                                    .font(.system(size: 9.5, weight: .bold, design: .rounded))
+                                    .lineLimit(1)
+                                    .fixedSize(horizontal: true, vertical: false)
+                            }
+                            .foregroundStyle(.black.opacity(0.9))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 1.5)
+                            .background(Color(red: 0.30, green: 0.88, blue: 0.56), in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .help("點擊立即自動下載並更新至 v\(newVer)")
+                    }
                 }
                 Text(updatedSubtitle)
                     .font(.system(size: 10.5))
@@ -205,10 +229,17 @@ struct ProviderCardView: View {
                         .foregroundStyle(.white)
 
                     if let error = state.error, state.snapshot != nil {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.system(size: 10.5))
-                            .foregroundStyle(.orange)
-                            .help("更新失敗（顯示上次資料）：\(error)")
+                        HStack(spacing: 2.5) {
+                            Image(systemName: "clock.arrow.circlepath")
+                                .font(.system(size: 9))
+                            Text("快取")
+                                .font(.system(size: 9, weight: .semibold, design: .rounded))
+                        }
+                        .foregroundStyle(.white.opacity(0.48))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(Color.white.opacity(0.07), in: Capsule())
+                        .help("官方 API 暫時冷卻中，目前顯示上次成功同步的快取資料（\(error)）")
                     }
 
                     Spacer()

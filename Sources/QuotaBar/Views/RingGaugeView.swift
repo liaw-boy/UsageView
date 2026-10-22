@@ -337,35 +337,43 @@ struct MenuBarStripView: View {
                     let color = Theme.brandColor(id)
                     if settings.menuBarMetricMode == .sessionAndWeekly {
                         // Two stacked rows filling the full 22pt vertical height of the menu bar,
-                        // with explicit "5h" and "7d" labels and AI logo / progress ring on the left.
+                        // with explicit "5h" and "7d" labels that never truncate and locked 62pt width.
                         HStack(spacing: 3) {
                             leadingIndicator(for: id, snap: snap, size: 14.5)
                             VStack(alignment: .leading, spacing: -2.5) {
-                                HStack(spacing: 1.5) {
+                                HStack(spacing: 2) {
                                     Text("5h")
                                         .font(.system(size: 9.5, weight: .heavy, design: .rounded))
                                         .foregroundStyle(color)
-                                        .frame(width: 13, alignment: .leading)
+                                        .lineLimit(1)
+                                        .fixedSize(horizontal: true, vertical: false)
+                                        .frame(width: 16, alignment: .leading)
                                     Text(percentString(snap.sessionPercent))
                                         .font(.system(size: 10.5, weight: .bold, design: .rounded))
                                         .foregroundStyle(.white)
                                         .monospacedDigit()
-                                        .frame(width: 27, alignment: .trailing)
+                                        .lineLimit(1)
+                                        .fixedSize(horizontal: true, vertical: false)
+                                        .frame(width: 28, alignment: .trailing)
                                 }
-                                HStack(spacing: 1.5) {
+                                HStack(spacing: 2) {
                                     Text("7d")
                                         .font(.system(size: 9.5, weight: .heavy, design: .rounded))
                                         .foregroundStyle(.white.opacity(0.68))
-                                        .frame(width: 13, alignment: .leading)
+                                        .lineLimit(1)
+                                        .fixedSize(horizontal: true, vertical: false)
+                                        .frame(width: 16, alignment: .leading)
                                     Text(percentString(snap.weeklyPercent))
                                         .font(.system(size: 10.5, weight: .bold, design: .rounded))
                                         .foregroundStyle(.white.opacity(0.90))
                                         .monospacedDigit()
-                                        .frame(width: 27, alignment: .trailing)
+                                        .lineLimit(1)
+                                        .fixedSize(horizontal: true, vertical: false)
+                                        .frame(width: 28, alignment: .trailing)
                                 }
                             }
                         }
-                        .frame(width: 59, height: 22)
+                        .frame(width: 63, height: 22)
                     } else {
                         // Single 5h row with AI logo (or progress ring) on the left and locked 45pt width.
                         HStack(spacing: 3) {

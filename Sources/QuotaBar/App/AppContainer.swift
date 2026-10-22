@@ -42,14 +42,17 @@ final class AppContainer {
         store = SnapshotStore(settings: settings)
         notifier = QuotaNotifier(store: store, settings: settings)
         statusItem = StatusItemController(store: store, settings: settings, updater: updater)
-        Task { await store.refresh() }
+        // Use cached snapshot if fetched within the last 120s so app restarts don't trigger 429 rate limits.
+        Task { await store.refreshIfStale(maxAge: 120) }
+        // Automatically check GitHub for new releases on launch.
+        Task { await updater.checkForUpdates() }
 
         // When the user enables tracking for a provider in Settings, refresh immediately.
         cancellable = settings.$trackedProviders
             .dropFirst()
             .removeDuplicates()
             .sink { [weak self] _ in
-                Task { await self?.store.refresh() }
+                Task { await self?.store.refreshIfStale(maxAge: 60) }
             }
     }
 }
