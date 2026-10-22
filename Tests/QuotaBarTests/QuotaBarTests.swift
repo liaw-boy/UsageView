@@ -151,12 +151,27 @@ final class QuotaBarTests: XCTestCase {
         XCTAssertNil(store.states[.claude]?.error)
 
         box.shouldFail = true
-        await store.refresh()
-        // Previous snapshot is preserved ("stale-while-revalidate") and backoff is scheduled.
-        XCTAssertEqual(store.states[.claude]?.snapshot?.sessionPercent, 33)
-        XCTAssertNotNil(store.states[.claude]?.error)
-        XCTAssertEqual(store.states[.claude]?.isStale, true)
-        XCTAssertNotNil(store.backoffUntil(.claude))
+        // 1. Restarting the store (or calling automatic refresh before `refreshMinutes` elapses)
+        // must NOT re-call the API when the persisted cache is still fresh!
+        let restartedStore = SnapshotStore(runtimes: [runtime], settings: settings, cacheURL: tmpCache)
+        await restartedStore.refresh(manual: false)
+        XCTAssertEqual(restartedStore.states[.claude]?.snapshot?.sessionPercent, 33)
+        XCTAssertNil(restartedStore.states[.claude]?.error)
+
+        // 2. When the cached snapshot is older than `refreshMinutes` (e.g. 10m ago), automatic refresh runs,
+        // and on 429 failure it preserves the previous snapshot ("stale-while-revalidate") and schedules backoff.
+        let expiredSnap = [ProviderSnapshot(
+            provider: .claude,
+            lines: [MetricLine(id: "5h", label: "5 小時", kind: .session, usedPercent: 33, resetsAt: nil)],
+            fetchedAt: Date().addingTimeInterval(-600)
+        )]
+        try? JSONEncoder().encode(expiredSnap).write(to: tmpCache)
+        let dueStore = SnapshotStore(runtimes: [runtime], settings: settings, cacheURL: tmpCache)
+        await dueStore.refresh(manual: false)
+        XCTAssertEqual(dueStore.states[.claude]?.snapshot?.sessionPercent, 33)
+        XCTAssertNotNil(dueStore.states[.claude]?.error)
+        XCTAssertEqual(dueStore.states[.claude]?.isStale, true)
+        XCTAssertNotNil(dueStore.backoffUntil(.claude))
     }
 
     @MainActor

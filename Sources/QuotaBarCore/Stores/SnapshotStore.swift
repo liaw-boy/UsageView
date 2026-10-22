@@ -71,9 +71,10 @@ public final class SnapshotStore: ObservableObject {
 
     private func scheduleRefreshTimer(minutes: Int) {
         refreshTimer?.invalidate()
-        let interval = TimeInterval(max(minutes, SettingsStore.minimumRefreshMinutes) * 60)
-        let t = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
-            Task { @MainActor in await self?.refresh() }
+        // Check every 30s whether any tracked provider's persisted `fetchedAt` has reached `refreshMinutes`.
+        // Because `fetchedAt` is saved on disk, restarting the app never resets or prematurely triggers API calls.
+        let t = Timer(timeInterval: 30, repeats: true) { [weak self] _ in
+            Task { @MainActor in await self?.refresh(manual: false) }
         }
         RunLoop.main.add(t, forMode: .common)
         refreshTimer = t
@@ -92,28 +93,25 @@ public final class SnapshotStore: ObservableObject {
         carouselTimer = t
     }
 
-    /// Triggered automatically when opening the popover if data is older than `maxAge` or any tracked provider has an error.
-    public func refreshIfStale(maxAge: TimeInterval = 60) async {
-        let hasError = trackedProviders.contains { states[$0]?.error != nil }
-        let isOld = lastUpdated.map { Date().timeIntervalSince($0) >= maxAge } ?? true
-        if hasError || isOld {
-            await refresh(manual: false)
-        }
-    }
-
-    /// - Parameter manual: user-initiated; throttled to once per 15 s (unless a provider had an error, in which case we allow immediate retry).
+    /// Only refreshes providers whose persisted `fetchedAt` is older than the configured `refreshMinutes`
+    /// (or has no snapshot yet), unless `manual: true` is explicitly requested by the user.
     public func refresh(manual: Bool = false) async {
         let now = Date()
         let anyError = trackedProviders.contains { states[$0]?.error != nil }
         if manual, !anyError, let last = lastRefresh, now.timeIntervalSince(last) < Self.manualThrottle { return }
-        lastRefresh = now
 
+        let requiredAge = TimeInterval(max(settings.refreshMinutes, SettingsStore.minimumRefreshMinutes) * 60)
         let due = runtimes.filter { r in
             guard settings.isTracked(r.id), let s = states[r.id], !s.isRefreshing else { return false }
             if manual { return true }
-            return (s.backoffUntil ?? .distantPast) <= now
+            guard (s.backoffUntil ?? .distantPast) <= now else { return false }
+            if let fetchedAt = s.snapshot?.fetchedAt {
+                return now.timeIntervalSince(fetchedAt) >= requiredAge
+            }
+            return true // Never fetched before
         }
         guard !due.isEmpty else { return }
+        lastRefresh = now
         for r in due { states[r.id]?.isRefreshing = true }
 
         await withTaskGroup(of: (ProviderID, Result<[MetricLine], Error>).self) { group in

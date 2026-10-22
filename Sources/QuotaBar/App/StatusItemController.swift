@@ -112,9 +112,8 @@ final class StatusItemController: NSObject, ObservableObject {
             showingSettings = false
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             popover.contentViewController?.view.window?.makeKey()
+            syncPopoverSize()
             startMonitoringOutsideClicks()
-            // Automatically refresh if data is older than 60s or any provider had an error.
-            Task { await store.refreshIfStale(maxAge: 60) }
         }
     }
 
