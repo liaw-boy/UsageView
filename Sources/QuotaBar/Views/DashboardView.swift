@@ -15,9 +15,6 @@ struct DashboardView: View {
                 if controller.showingSettings {
                     SettingsView(settings: settings, updater: updater)
                 } else {
-                    if store.panelProviders.count > 1 {
-                        panelModeToolbar
-                    }
                     cardsContent
                 }
                 footer
@@ -100,88 +97,7 @@ struct DashboardView: View {
         return "更新於 \(secs / 3600) 小時前 · 點擊右上立即重試"
     }
 
-    // MARK: - Panel Display Mode Toolbar (全部 / 單一 / 輪播)
-
-    private var panelModeToolbar: some View {
-        HStack(spacing: 6) {
-            HStack(spacing: 3) {
-                ForEach(MultiProviderDisplayMode.allCases, id: \.self) { mode in
-                    let active = settings.panelDisplayMode == mode
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.16)) {
-                            settings.panelDisplayMode = mode
-                        }
-                    } label: {
-                        HStack(spacing: 3) {
-                            Image(systemName: mode.icon)
-                                .font(.system(size: 9.5, weight: .semibold))
-                            Text(mode.title)
-                                .font(.system(size: 10.5, weight: .semibold, design: .rounded))
-                        }
-                        .foregroundStyle(active ? .white : .white.opacity(0.55))
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(
-                            Capsule().fill(active ? Color.white.opacity(0.18) : Color.clear)
-                        )
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(2)
-            .background(Theme.cardBackground, in: Capsule())
-            .overlay(Capsule().strokeBorder(Theme.cardBorder, lineWidth: 1))
-
-            Spacer()
-
-            if settings.panelDisplayMode != .all {
-                HStack(spacing: 4) {
-                    ForEach(store.panelProviders) { id in
-                        let isCurrent = activeSingleProvider == id
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.16)) {
-                                settings.selectedSingleProvider = id
-                                if settings.panelDisplayMode == .carousel {
-                                    settings.panelDisplayMode = .single
-                                }
-                            }
-                        } label: {
-                            HStack(spacing: 4) {
-                                ProviderLogoView(provider: id, size: 11, tinted: true)
-                                Text(id.shortName)
-                                    .font(.system(size: 10.5, weight: .bold, design: .rounded))
-                            }
-                            .foregroundStyle(isCurrent ? .white : .white.opacity(0.50))
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 3)
-                            .background(
-                                Capsule().fill(isCurrent ? Color.white.opacity(0.16) : Theme.cardBackground)
-                            )
-                            .overlay(
-                                Capsule().strokeBorder(isCurrent ? Color.white.opacity(0.32) : Theme.cardBorder, lineWidth: 1)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-        }
-    }
-
-    private var activeSingleProvider: ProviderID {
-        let visible = store.panelProviders
-        guard !visible.isEmpty else { return .claude }
-        if settings.panelDisplayMode == .carousel {
-            let idx = abs(store.carouselTick) % visible.count
-            return visible[idx]
-        }
-        if visible.contains(settings.selectedSingleProvider) {
-            return settings.selectedSingleProvider
-        }
-        return visible[0]
-    }
-
-    // MARK: - Cards Content
+    // MARK: - Cards Content (Always shows all enabled panel providers)
 
     @ViewBuilder
     private var cardsContent: some View {
@@ -211,7 +127,7 @@ struct DashboardView: View {
                     .fill(Theme.cardBackground)
                     .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).strokeBorder(Theme.cardBorder, lineWidth: 1))
             )
-        } else if settings.panelDisplayMode == .all || visible.count == 1 {
+        } else {
             VStack(spacing: 7) {
                 ForEach(visible) { id in
                     ProviderCardView(
@@ -222,17 +138,6 @@ struct DashboardView: View {
                     )
                 }
             }
-        } else {
-            let current = activeSingleProvider
-            ProviderCardView(
-                provider: current,
-                state: store.states[current] ?? ProviderState(),
-                showRemaining: settings.showRemaining,
-                onToggleMode: { settings.showRemaining.toggle() }
-            )
-            .id(current)
-            .transition(.opacity.combined(with: .scale(scale: 0.98)))
-            .animation(.easeInOut(duration: 0.22), value: current)
         }
     }
 
@@ -413,23 +318,29 @@ private struct PaceChip: View {
 
     private var label: String {
         switch pace {
-        case .relaxed: "悠閒"
-        case .onTrack: "剛好"
-        case .fast: "燒很快"
+        case .useFaster: "⚡ 快一點用"
+        case .comfortable: "👌 放心用"
+        case .slowDown: "🐢 少用一點"
+        case .conserve: "⚠️ 省著點用"
+        case .almostGone: "🔥 要沒了！"
         }
     }
 
     private var tint: Color {
         switch pace {
-        case .relaxed: Color(red: 0.30, green: 0.88, blue: 0.56)
-        case .onTrack: Color(red: 0.45, green: 0.72, blue: 1.00)
-        case .fast: Color(red: 1.00, green: 0.68, blue: 0.24)
+        case .useFaster: Color(red: 0.22, green: 0.88, blue: 0.68)
+        case .comfortable: Color(red: 0.45, green: 0.72, blue: 1.00)
+        case .slowDown: Color(red: 1.00, green: 0.76, blue: 0.24)
+        case .conserve: Color(red: 1.00, green: 0.52, blue: 0.22)
+        case .almostGone: Color(red: 0.98, green: 0.30, blue: 0.36)
         }
     }
 
     var body: some View {
         Text(label)
             .font(.system(size: 9.5, weight: .bold, design: .rounded))
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
             .foregroundStyle(tint)
             .padding(.horizontal, 6)
             .padding(.vertical, 1.5)
@@ -504,20 +415,58 @@ struct SettingsView: View {
     }
 
     private var displayModeCard: some View {
-        SettingsCard(title: "多 AI 顯示與輪播設定", icon: "arrow.triangle.2.circlepath") {
-            VStack(alignment: .leading, spacing: 7) {
+        SettingsCard(title: "狀態列顯示與輪播設定", icon: "menubar.rectangle") {
+            VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    Text("狀態列顯示")
+                    Text("狀態列模式")
                         .font(.system(size: 11.5, weight: .medium))
                         .foregroundStyle(.white.opacity(0.9))
+                        .lineLimit(1)
                     Spacer()
                     ModeSegmentedPicker(selection: $settings.menuBarDisplayMode)
+                }
+
+                // Immediately below "狀態列模式" when ".single" is selected!
+                if settings.menuBarDisplayMode == .single {
+                    HStack(spacing: 6) {
+                        Text("單一顯示")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.70))
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                        Spacer(minLength: 4)
+                        HStack(spacing: 4) {
+                            ForEach(ProviderID.allCases) { id in
+                                let sel = settings.selectedSingleProvider == id
+                                Button {
+                                    settings.selectedSingleProvider = id
+                                } label: {
+                                    HStack(spacing: 3.5) {
+                                        ProviderLogoView(provider: id, size: 10.5, tinted: true)
+                                        Text(id.displayName)
+                                            .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                                            .lineLimit(1)
+                                            .fixedSize(horizontal: true, vertical: false)
+                                    }
+                                    .foregroundStyle(sel ? .white : .white.opacity(0.55))
+                                    .padding(.horizontal, 7)
+                                    .padding(.vertical, 3.5)
+                                    .background(
+                                        Capsule().fill(sel ? Color.white.opacity(0.18) : Color.white.opacity(0.06))
+                                    )
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .fixedSize(horizontal: true, vertical: false)
+                    }
                 }
 
                 HStack {
                     Text("狀態列週期")
                         .font(.system(size: 11.5, weight: .medium))
                         .foregroundStyle(.white.opacity(0.9))
+                        .lineLimit(1)
                     Spacer()
                     HStack(spacing: 3) {
                         ForEach(MenuBarMetricMode.allCases, id: \.self) { mode in
@@ -527,12 +476,14 @@ struct SettingsView: View {
                             } label: {
                                 Text(mode.title)
                                     .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                                    .lineLimit(1)
+                                    .fixedSize(horizontal: true, vertical: false)
                                     .foregroundStyle(selected ? .white : .white.opacity(0.5))
                                     .padding(.horizontal, 8)
                                     .padding(.vertical, 3.5)
                                     .background(
                                         Capsule()
-                                            .fill(selected ? Color.white.opacity(0.16) : Color.clear)
+                                            .fill(selected ? Color.white.opacity(0.18) : Color.clear)
                                     )
                             }
                             .buttonStyle(.plain)
@@ -540,44 +491,7 @@ struct SettingsView: View {
                     }
                     .padding(2)
                     .background(Color.white.opacity(0.06), in: Capsule())
-                }
-
-                HStack {
-                    Text("展開面板顯示")
-                        .font(.system(size: 11.5, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.9))
-                    Spacer()
-                    ModeSegmentedPicker(selection: $settings.panelDisplayMode)
-                }
-
-                if settings.menuBarDisplayMode == .single || settings.panelDisplayMode == .single {
-                    HStack {
-                        Text("單一模式固定顯示")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.75))
-                        Spacer()
-                        HStack(spacing: 4) {
-                            ForEach(ProviderID.allCases) { id in
-                                let sel = settings.selectedSingleProvider == id
-                                Button {
-                                    settings.selectedSingleProvider = id
-                                } label: {
-                                    HStack(spacing: 4) {
-                                        ProviderLogoView(provider: id, size: 10.5, tinted: true)
-                                        Text(id.displayName)
-                                            .font(.system(size: 10.5, weight: .semibold, design: .rounded))
-                                    }
-                                    .foregroundStyle(sel ? .white : .white.opacity(0.55))
-                                    .padding(.horizontal, 7)
-                                    .padding(.vertical, 3)
-                                    .background(
-                                        Capsule().fill(sel ? Color.white.opacity(0.16) : Color.white.opacity(0.06))
-                                    )
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                    }
+                    .fixedSize(horizontal: true, vertical: false)
                 }
             }
         }
@@ -724,6 +638,8 @@ private struct ModeSegmentedPicker: View {
                             .font(.system(size: 9, weight: .bold))
                         Text(mode.title)
                             .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
                     }
                     .foregroundStyle(active ? .white : .white.opacity(0.55))
                     .padding(.horizontal, 7)
@@ -737,6 +653,7 @@ private struct ModeSegmentedPicker: View {
         }
         .padding(2)
         .background(Color.white.opacity(0.06), in: Capsule())
+        .fixedSize(horizontal: true, vertical: false)
     }
 }
 

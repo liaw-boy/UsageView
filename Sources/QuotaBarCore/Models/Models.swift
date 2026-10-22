@@ -76,17 +76,30 @@ public struct ProviderSnapshot: Codable, Sendable, Equatable {
 }
 
 /// Burn-rate estimate: are we using the window faster than time is passing?
-public enum Pace: String, Sendable {
-    case relaxed, onTrack, fast
+public enum Pace: String, Sendable, CaseIterable {
+    case useFaster   // 快一點用（時間過得比額度消耗快很多，不用白不用）
+    case comfortable // 放心用（配速剛剛好）
+    case slowDown    // 少用一點（消耗速度偏快）
+    case conserve    // 省著點用（額度吃緊或消耗太快）
+    case almostGone  // 要沒了！（額度即將見底）
 
     public static func evaluate(usedPercent: Double, resetsAt: Date?, periodSeconds: TimeInterval, now: Date = Date()) -> Pace? {
-        guard let resetsAt, usedPercent > 0, periodSeconds > 0 else { return nil }
+        if usedPercent >= 92 { return .almostGone }
+        if usedPercent >= 82 { return .conserve }
+        guard let resetsAt, usedPercent > 0, periodSeconds > 0 else {
+            if usedPercent >= 70 { return .slowDown }
+            return nil
+        }
         let remaining = resetsAt.timeIntervalSince(now)
         let elapsed = 1 - remaining / periodSeconds
-        guard elapsed >= 0.05, elapsed <= 1 else { return nil } // too early to judge
+        guard elapsed >= 0.05, elapsed <= 1 else {
+            if usedPercent >= 70 { return .slowDown }
+            return nil
+        }
         let ratio = usedPercent / (elapsed * 100)
-        if ratio < 0.8 { return .relaxed }
-        if ratio <= 1.15 { return .onTrack }
-        return .fast
+        if ratio < 0.65 { return .useFaster }
+        if ratio <= 1.10 { return .comfortable }
+        if ratio <= 1.45 { return .slowDown }
+        return .conserve
     }
 }

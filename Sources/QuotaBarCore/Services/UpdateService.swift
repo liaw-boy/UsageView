@@ -69,7 +69,9 @@ public final class UpdateService: ObservableObject {
             else { return nil }
             let unzipCode = Self.runProcess("/usr/bin/ditto", args: ["-x", "-k", zip.path, tempDir.path]).status
             guard unzipCode == 0 else { return nil }
-            return tempDir.appendingPathComponent("QuotaBar.app")
+            let unpacked = (try? fm.contentsOfDirectory(at: tempDir, includingPropertiesForKeys: nil))?
+                .first(where: { $0.pathExtension == "app" })
+            return unpacked ?? tempDir.appendingPathComponent("UsageView.app")
         }.value
 
         if let newApp = downloaded, fm.fileExists(atPath: newApp.path) {
@@ -123,7 +125,7 @@ public final class UpdateService: ObservableObject {
     private func replaceAndRelaunch(with newBundle: URL) {
         let currentBundle = Bundle.main.bundleURL
         guard currentBundle.pathExtension == "app" else {
-            status = .failed("請從 QuotaBar.app 執行以套用自動替換更新")
+            status = .failed("請從 UsageView.app 執行以套用自動替換更新")
             return
         }
         let pid = ProcessInfo.processInfo.processIdentifier
