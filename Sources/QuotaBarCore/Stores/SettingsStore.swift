@@ -37,6 +37,19 @@ public enum MenuBarMetricMode: String, CaseIterable, Codable, Sendable {
     }
 }
 
+/// Leading indicator style in the macOS menu bar item.
+public enum MenuBarIconStyle: String, CaseIterable, Codable, Sendable {
+    case logo // 品牌圖示
+    case ring // 進度圓環
+
+    public var title: String {
+        switch self {
+        case .logo: "品牌圖示"
+        case .ring: "進度圓環"
+        }
+    }
+}
+
 @MainActor
 public final class SettingsStore: ObservableObject {
     private let defaults: UserDefaults
@@ -70,6 +83,10 @@ public final class SettingsStore: ObservableObject {
     @Published public var menuBarMetricMode: MenuBarMetricMode {
         didSet { defaults.set(menuBarMetricMode.rawValue, forKey: "menuBarMetricMode") }
     }
+    /// 狀態列左側圖示：品牌圖示（預設） / 進度圓環
+    @Published public var menuBarIconStyle: MenuBarIconStyle {
+        didSet { defaults.set(menuBarIconStyle.rawValue, forKey: "menuBarIconStyle") }
+    }
     /// 展開面板多 AI 顯示模式：全部 / 單一（可切換） / 輪播
     @Published public var panelDisplayMode: MultiProviderDisplayMode {
         didSet { defaults.set(panelDisplayMode.rawValue, forKey: "panelDisplayMode") }
@@ -95,6 +112,7 @@ public final class SettingsStore: ObservableObject {
 
         menuBarDisplayMode = MultiProviderDisplayMode(rawValue: defaults.string(forKey: "menuBarDisplayMode") ?? "") ?? .all
         menuBarMetricMode = MenuBarMetricMode(rawValue: defaults.string(forKey: "menuBarMetricMode") ?? "") ?? .sessionAndWeekly
+        menuBarIconStyle = MenuBarIconStyle(rawValue: defaults.string(forKey: "menuBarIconStyle") ?? "") ?? .logo
         panelDisplayMode = MultiProviderDisplayMode(rawValue: defaults.string(forKey: "panelDisplayMode") ?? "") ?? .all
         selectedSingleProvider = ProviderID(rawValue: defaults.string(forKey: "selectedSingleProvider") ?? "") ?? .claude
         let cs = defaults.integer(forKey: "carouselSeconds")

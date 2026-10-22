@@ -64,9 +64,8 @@ final class StatusItemController: NSObject, ObservableObject {
             image.isTemplate = false
             button.image = image
             button.title = ""
-            // Lock exact status item length with minimal 3pt margin per side so
-            // carousel rotation or digit count changes never resize the button.
-            statusItem.length = image.size.width + 6
+            // Lock exact status item length so carousel rotation or digit count changes never resize the button.
+            statusItem.length = image.size.width + 2
         } else {
             button.image = nil
             button.title = "◎ UsageView"

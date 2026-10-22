@@ -493,6 +493,38 @@ struct SettingsView: View {
                     .background(Color.white.opacity(0.06), in: Capsule())
                     .fixedSize(horizontal: true, vertical: false)
                 }
+
+                HStack {
+                    Text("狀態列圖示")
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.9))
+                        .lineLimit(1)
+                    Spacer()
+                    HStack(spacing: 3) {
+                        ForEach(MenuBarIconStyle.allCases, id: \.self) { style in
+                            let selected = settings.menuBarIconStyle == style
+                            Button {
+                                settings.menuBarIconStyle = style
+                            } label: {
+                                Text(style.title)
+                                    .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                                    .lineLimit(1)
+                                    .fixedSize(horizontal: true, vertical: false)
+                                    .foregroundStyle(selected ? .white : .white.opacity(0.5))
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 3.5)
+                                    .background(
+                                        Capsule()
+                                            .fill(selected ? Color.white.opacity(0.18) : Color.clear)
+                                    )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(2)
+                    .background(Color.white.opacity(0.06), in: Capsule())
+                    .fixedSize(horizontal: true, vertical: false)
+                }
             }
         }
     }

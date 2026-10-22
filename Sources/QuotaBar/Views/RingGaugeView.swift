@@ -241,47 +241,34 @@ struct DualRingGauge: View {
 
 // MARK: - Menu Bar Strip
 
-/// Compact colored circle gauge for the macOS menu bar.
-/// Uses the provider's brand color directly so the circle color identifies the AI provider at a glance.
+/// High-contrast progress ring for the macOS menu bar when `.ring` icon style is selected.
 private struct MenuBarCircleGauge: View {
     let sessionUsed: Double?
-    let weeklyUsed: Double?
-    let showWeekly: Bool
     let showRemaining: Bool
     let color: Color
-    var size: CGFloat = 13.5
+    var size: CGFloat = 14
 
-    private func fraction(for used: Double?) -> Double {
-        guard let used else { return 0 }
-        let value = showRemaining ? max(0, 100 - used) : used
-        return min(max(value / 100, 0.04), 1.0)
+    private var fraction: Double {
+        guard let sessionUsed else { return 0 }
+        let value = showRemaining ? max(0, 100 - sessionUsed) : sessionUsed
+        return min(max(value / 100, 0.05), 1.0)
     }
 
     var body: some View {
-        let outerWidth: CGFloat = showWeekly ? 2.1 : 2.5
-        let innerWidth: CGFloat = 1.7
-        let innerInset: CGFloat = outerWidth + 1.4
-
+        let lineWidth: CGFloat = 2.6
         ZStack {
+            // High-visibility white track so the full circle is always clear against any wallpaper
             Circle()
-                .inset(by: outerWidth / 2)
-                .stroke(color.opacity(0.30), lineWidth: outerWidth)
+                .inset(by: lineWidth / 2)
+                .stroke(Color.white.opacity(0.28), lineWidth: lineWidth)
             Circle()
-                .inset(by: outerWidth / 2)
-                .trim(from: 0, to: fraction(for: sessionUsed))
-                .stroke(color, style: StrokeStyle(lineWidth: outerWidth, lineCap: .round))
+                .inset(by: lineWidth / 2)
+                .trim(from: 0, to: fraction)
+                .stroke(color, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                 .rotationEffect(.degrees(-90))
-
-            if showWeekly {
-                Circle()
-                    .inset(by: innerInset + innerWidth / 2)
-                    .stroke(color.opacity(0.22), lineWidth: innerWidth)
-                Circle()
-                    .inset(by: innerInset + innerWidth / 2)
-                    .trim(from: 0, to: fraction(for: weeklyUsed))
-                    .stroke(color.opacity(0.88), style: StrokeStyle(lineWidth: innerWidth, lineCap: .round))
-                    .rotationEffect(.degrees(-90))
-            }
+            Circle()
+                .fill(color)
+                .frame(width: 3.6, height: 3.6)
         }
         .frame(width: size, height: size)
     }
@@ -317,72 +304,78 @@ struct MenuBarStripView: View {
         return Theme.formattedPercent(used, showRemaining: settings.showRemaining)
     }
 
+    @ViewBuilder
+    private func leadingIndicator(for id: ProviderID, snap: ProviderSnapshot, size: CGFloat) -> some View {
+        switch settings.menuBarIconStyle {
+        case .logo:
+            ProviderLogoView(provider: id, size: size, tinted: true)
+        case .ring:
+            MenuBarCircleGauge(
+                sessionUsed: snap.sessionPercent,
+                showRemaining: settings.showRemaining,
+                color: Theme.brandColor(id),
+                size: size
+            )
+        }
+    }
+
     var body: some View {
         HStack(spacing: 6) {
             if activeItems.isEmpty {
                 HStack(spacing: 3.5) {
-                    MenuBarCircleGauge(
-                        sessionUsed: 0,
-                        weeklyUsed: nil,
-                        showWeekly: false,
-                        showRemaining: true,
-                        color: .white.opacity(0.75),
-                        size: 13
-                    )
+                    Image(systemName: "waveform.path.ecg")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white)
                     Text("--%")
                         .font(.system(size: 11.5, weight: .semibold, design: .rounded))
                         .foregroundStyle(.white)
                         .monospacedDigit()
-                        .frame(width: 29, alignment: .trailing)
                 }
-                .frame(width: 45.5, height: 18)
+                .frame(width: 45, height: 18)
             } else {
                 ForEach(activeItems, id: \.0) { id, snap in
                     let color = Theme.brandColor(id)
                     if settings.menuBarMetricMode == .sessionAndWeekly {
-                        // Two stacked rows (top = 5h, bottom = 7d) next to the colored dual circle,
-                        // matching the compact transparent macOS menu bar style with fixed 43pt width.
-                        HStack(spacing: 3) {
-                            MenuBarCircleGauge(
-                                sessionUsed: snap.sessionPercent,
-                                weeklyUsed: snap.weeklyPercent,
-                                showWeekly: true,
-                                showRemaining: settings.showRemaining,
-                                color: color,
-                                size: 13.5
-                            )
-                            VStack(alignment: .trailing, spacing: -1.5) {
-                                Text(percentString(snap.sessionPercent))
-                                    .font(.system(size: 9.5, weight: .bold, design: .rounded))
-                                    .foregroundStyle(.white)
-                                    .monospacedDigit()
-                                    .frame(width: 26, alignment: .trailing)
-                                Text(percentString(snap.weeklyPercent))
-                                    .font(.system(size: 9.5, weight: .bold, design: .rounded))
-                                    .foregroundStyle(.white.opacity(0.84))
-                                    .monospacedDigit()
-                                    .frame(width: 26, alignment: .trailing)
+                        // Two stacked rows with explicit "5h" and "7d" labels in front of each percentage,
+                        // paired with the AI logo (or progress ring) on the left and a locked 56pt width.
+                        HStack(spacing: 3.5) {
+                            leadingIndicator(for: id, snap: snap, size: 13.5)
+                            VStack(alignment: .leading, spacing: -1.5) {
+                                HStack(spacing: 2) {
+                                    Text("5h")
+                                        .font(.system(size: 8.5, weight: .heavy, design: .rounded))
+                                        .foregroundStyle(color)
+                                        .frame(width: 12, alignment: .leading)
+                                    Text(percentString(snap.sessionPercent))
+                                        .font(.system(size: 9.5, weight: .bold, design: .rounded))
+                                        .foregroundStyle(.white)
+                                        .monospacedDigit()
+                                        .frame(width: 25, alignment: .trailing)
+                                }
+                                HStack(spacing: 2) {
+                                    Text("7d")
+                                        .font(.system(size: 8.5, weight: .heavy, design: .rounded))
+                                        .foregroundStyle(.white.opacity(0.68))
+                                        .frame(width: 12, alignment: .leading)
+                                    Text(percentString(snap.weeklyPercent))
+                                        .font(.system(size: 9.5, weight: .bold, design: .rounded))
+                                        .foregroundStyle(.white.opacity(0.88))
+                                        .monospacedDigit()
+                                        .frame(width: 25, alignment: .trailing)
+                                }
                             }
                         }
-                        .frame(width: 43, height: 19)
+                        .frame(width: 56, height: 19)
                     } else {
-                        // Single 5h row next to the colored circle with fixed 45.5pt width.
+                        // Single 5h row with AI logo (or progress ring) on the left and locked 45pt width.
                         HStack(spacing: 3.5) {
-                            MenuBarCircleGauge(
-                                sessionUsed: snap.sessionPercent,
-                                weeklyUsed: nil,
-                                showWeekly: false,
-                                showRemaining: settings.showRemaining,
-                                color: color,
-                                size: 13
-                            )
+                            leadingIndicator(for: id, snap: snap, size: 13)
                             Text(percentString(snap.sessionPercent))
-                                .font(.system(size: 11.5, weight: .semibold, design: .rounded))
+                                .font(.system(size: 11.5, weight: .bold, design: .rounded))
                                 .foregroundStyle(.white)
                                 .monospacedDigit()
-                                .frame(width: 29, alignment: .trailing)
                         }
-                        .frame(width: 45.5, height: 18)
+                        .frame(width: 45, height: 18, alignment: .center)
                     }
                 }
             }
