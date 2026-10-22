@@ -295,15 +295,18 @@ public struct UsageStatisticsView: View {
             .frame(maxWidth: .infinity, alignment: .trailing)
 
             VStack(alignment: .trailing, spacing: 1) {
-                Text(String(format: "$%.2f", cost))
+                Text(formatCostMatrix(cost))
                     .font(.system(size: 13.5, weight: .bold, design: .rounded))
                     .foregroundStyle(Color(red: 0.35, green: 0.88, blue: 0.62))
                     .monospacedDigit()
+                    .lineLimit(1)
+                    .help(String(format: "$%.2f", cost))
                 let ntd = cost * 32.2
-                Text("≈ NT$\(Int(ntd.rounded()))")
+                Text("≈ NT$\(formatNTD(ntd))")
                     .font(.system(size: 9.5, design: .rounded))
                     .foregroundStyle(.white.opacity(0.45))
                     .monospacedDigit()
+                    .lineLimit(1)
             }
             .frame(width: 108, alignment: .trailing)
         }
@@ -367,16 +370,19 @@ public struct UsageStatisticsView: View {
                                         .font(.system(size: 11.5, weight: .semibold, design: .rounded))
                                         .foregroundStyle(.white.opacity(0.92))
                                         .lineLimit(1)
-                                    Spacer()
+                                    Spacer(minLength: 4)
                                     Text(formatTokens(tok))
                                         .font(.system(size: 11, weight: .medium, design: .rounded))
                                         .foregroundStyle(.white.opacity(0.65))
                                         .monospacedDigit()
-                                    Text(String(format: "$%.2f", cost))
+                                        .lineLimit(1)
+                                    Text(formatCostCompact(cost))
                                         .font(.system(size: 11.5, weight: .bold, design: .rounded))
                                         .foregroundStyle(Color(red: 0.35, green: 0.88, blue: 0.62))
                                         .monospacedDigit()
-                                        .frame(width: 58, alignment: .trailing)
+                                        .lineLimit(1)
+                                        .frame(minWidth: 54, alignment: .trailing)
+                                        .help(String(format: "$%.2f (約 NT$%d)", cost, Int((cost * 32.2).rounded())))
                                 }
 
                                 // Visual share bar
@@ -441,10 +447,12 @@ public struct UsageStatisticsView: View {
                 } else {
                     ForEach(history.reversed()) { item in
                         VStack(spacing: 2) {
-                            Text(String(format: "$%.1f", item.costUSD))
-                                .font(.system(size: 10.5, weight: .bold, design: .rounded))
+                            Text(formatCostCompact(item.costUSD))
+                                .font(.system(size: 10, weight: .bold, design: .rounded))
                                 .foregroundStyle(Color(red: 0.35, green: 0.88, blue: 0.62))
                                 .monospacedDigit()
+                                .lineLimit(1)
+                                .help(String(format: "$%.2f", item.costUSD))
                             Text(shortDate(item.date))
                                 .font(.system(size: 9, design: .rounded))
                                 .foregroundStyle(.white.opacity(0.50))
@@ -483,6 +491,34 @@ public struct UsageStatisticsView: View {
     }
 
     // MARK: - Helpers
+
+    private func formatCostMatrix(_ cost: Double) -> String {
+        if cost >= 1_000_000 {
+            return String(format: "$%.2fM", cost / 1_000_000)
+        } else if cost >= 100_000 {
+            return String(format: "$%.1fK", cost / 1_000)
+        } else {
+            return String(format: "$%.2f", cost)
+        }
+    }
+
+    private func formatNTD(_ ntd: Double) -> String {
+        let n = Int(ntd.rounded())
+        if n >= 10_000_000 {
+            return String(format: "%.1fM", Double(n) / 1_000_000)
+        }
+        return NumberFormatter.localizedString(from: NSNumber(value: n), number: .decimal)
+    }
+
+    private func formatCostCompact(_ cost: Double) -> String {
+        if cost >= 1_000_000 {
+            return String(format: "$%.2fM", cost / 1_000_000)
+        } else if cost >= 1_000 {
+            return String(format: "$%.2fK", cost / 1_000)
+        } else {
+            return String(format: "$%.2f", cost)
+        }
+    }
 
     private func formatTokens(_ n: Int) -> String {
         if n >= 1_000_000_000 {
