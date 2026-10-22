@@ -2,7 +2,7 @@ import Foundation
 
 /// The single choke point for network safety.
 ///
-/// TokenPulse must never consume quota or alter account state. Only the read-only usage endpoints
+/// UsageView must never consume quota or alter account state. Only the read-only usage endpoints
 /// (plus Google's OAuth token endpoint for Antigravity's in-memory access token and GitHub's release
 /// check endpoint) are allowed. Anything else — inference endpoints, rate-limit reset / credit consume
 /// endpoints, or rotating Claude/Codex OAuth token refresh — is rejected before a byte leaves the machine.

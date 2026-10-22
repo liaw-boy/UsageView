@@ -71,7 +71,7 @@ final class StatusItemController: NSObject, ObservableObject {
             button.title = ""
         } else {
             button.image = nil
-            button.title = "◎ TokenPulse"
+            button.title = "◎ UsageView"
         }
     }
 
@@ -113,7 +113,7 @@ final class StatusItemController: NSObject, ObservableObject {
         menu.addItem(settingsItem)
 
         menu.addItem(.separator())
-        let quitItem = NSMenuItem(title: "結束 TokenPulse", action: #selector(menuQuit), keyEquivalent: "q")
+        let quitItem = NSMenuItem(title: "結束 UsageView", action: #selector(menuQuit), keyEquivalent: "q")
         quitItem.target = self
         menu.addItem(quitItem)
 

@@ -41,7 +41,7 @@ struct DashboardView: View {
 
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 5) {
-                    Text(controller.showingSettings ? "偏好設定" : "TokenPulse")
+                    Text(controller.showingSettings ? "偏好設定" : "UsageView")
                         .font(.system(size: 15, weight: .bold, design: .rounded))
                         .foregroundStyle(.white)
                     Text("v\(UpdateService.currentVersion)")
@@ -608,7 +608,7 @@ struct SettingsView: View {
         SettingsCard(title: "版本與 GitHub 更新", icon: "arrow.triangle.2.circlepath.circle.fill") {
             HStack(alignment: .center) {
                 VStack(alignment: .leading, spacing: 1.5) {
-                    Text("TokenPulse v\(UpdateService.currentVersion)")
+                    Text("UsageView v\(UpdateService.currentVersion)")
                         .font(.system(size: 11.5, weight: .semibold, design: .rounded))
                         .foregroundStyle(.white.opacity(0.92))
                     Text(statusDescription)

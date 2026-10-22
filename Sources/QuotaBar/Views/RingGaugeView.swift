@@ -274,7 +274,7 @@ struct MenuBarStripView: View {
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(.white)
                     if !store.menuBarProviders.isEmpty {
-                        Text("TokenPulse")
+                        Text("UsageView")
                             .font(.system(size: 11, weight: .bold, design: .rounded))
                             .foregroundStyle(.white)
                     }
