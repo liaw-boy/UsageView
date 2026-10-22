@@ -3,12 +3,24 @@
   <h1>UsageView</h1>
   <p><b>macOS 原生狀態列 AI 額度監控工具（Claude · Codex · Antigravity）</b></p>
   <p>
+    <a href="https://github.com/liaw-boy/UsageView/releases/latest/download/UsageView.dmg"><img src="https://img.shields.io/badge/Download-UsageView.dmg-2563EB?style=flat-square&logo=apple&logoColor=white" alt="Download DMG"></a>
     <img src="https://img.shields.io/badge/Platform-macOS%2014%2B-111827?style=flat-square&logo=apple&logoColor=white" alt="macOS 14+">
     <img src="https://img.shields.io/badge/Language-Swift%205.10-F05138?style=flat-square&logo=swift&logoColor=white" alt="Swift 5.10">
     <img src="https://img.shields.io/badge/Quota%20Safety-100%25%20Read--Only-10B981?style=flat-square" alt="Zero Quota Consumption">
     <img src="https://img.shields.io/badge/Secrets-Zero%20Embedded-3B82F6?style=flat-square" alt="Zero Secrets">
   </p>
 </div>
+
+---
+
+## 📥 快速下載安裝（`.dmg` 映像檔）
+
+1. 點擊下載最新映像檔 👉 **[下載 `UsageView.dmg` (Latest Release)](https://github.com/liaw-boy/UsageView/releases/latest/download/UsageView.dmg)**
+2. 雙擊打開 `UsageView.dmg`，將 **`UsageView.app`** 拖曳至 **`Applications`（應用程式）** 資料夾。
+3. 若首次開啟時 macOS 提示未簽署開發者，可於終端機執行以下指令解除隔離屬性後直接開啟：
+   ```bash
+   xattr -cr /Applications/UsageView.app && open /Applications/UsageView.app
+   ```
 
 ---
 

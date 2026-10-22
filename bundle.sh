@@ -32,4 +32,16 @@ cat > $APP/Contents/Info.plist <<EOF
 </dict></plist>
 EOF
 codesign --force --sign - $APP
-echo "Built $APP (UsageView v0.8.5) — move it to /Applications and open it."
+
+# Package UsageView.app.zip (for in-app auto-updater) and UsageView.dmg (for drag-to-Applications installer)
+rm -f UsageView.app.zip UsageView.dmg
+ditto -c -k --keepParent $APP UsageView.app.zip
+
+DMG_STAGE=$(mktemp -d)/dmg_stage
+mkdir -p "$DMG_STAGE"
+cp -R $APP "$DMG_STAGE/"
+ln -s /Applications "$DMG_STAGE/Applications"
+hdiutil create -volname "UsageView" -srcfolder "$DMG_STAGE" -ov -format UDZO UsageView.dmg >/dev/null
+rm -rf "$(dirname "$DMG_STAGE")"
+
+echo "Built $APP, UsageView.app.zip, and UsageView.dmg (UsageView v0.8.5)"

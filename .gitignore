@@ -3,6 +3,7 @@ reference-*/
 .swiftpm/
 *.app/
 *.zip
+*.dmg
 *.xcodeproj
 *.xcworkspace
 .DS_Store
