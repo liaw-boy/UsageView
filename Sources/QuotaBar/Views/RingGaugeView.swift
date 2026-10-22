@@ -29,6 +29,26 @@ enum Theme {
         return brandColor(id)
     }
 
+    /// Menu bar text/label color rule:
+    /// 1. Quota almost exhausted (used >= 95% -> Red; used >= 80% -> Yellow)
+    /// 2. Reset time remaining <= 1 hour -> AI Brand Color
+    /// 3. Otherwise (normal state) -> White
+    static func menuBarWindowColor(
+        for id: ProviderID,
+        snap: ProviderSnapshot,
+        kind: WindowKind,
+        normalOpacity: Double = 1.0,
+        now: Date = Date()
+    ) -> Color {
+        let used = (kind == .session ? snap.sessionPercent : snap.weeklyPercent) ?? 0
+        if used >= 95 { return Color(red: 0.98, green: 0.30, blue: 0.36) }
+        if used >= 80 { return Color(red: 0.98, green: 0.76, blue: 0.22) }
+        if snap.isResettingWithinOneHour(kind: kind, now: now) {
+            return brandColor(id)
+        }
+        return Color.white.opacity(normalOpacity)
+    }
+
     static func formattedPercent(_ used: Double, showRemaining: Bool) -> String {
         let val = showRemaining ? max(0, 100 - used) : used
         return "\(Int(val.rounded()))%"
@@ -366,7 +386,11 @@ struct MenuBarStripView: View {
                 .frame(height: 22)
             } else {
                 ForEach(activeItems, id: \.0) { id, snap in
-                    let color = Theme.brandColor(id)
+                    let sessionLabelColor = Theme.menuBarWindowColor(for: id, snap: snap, kind: .session, normalOpacity: 0.82)
+                    let sessionValueColor = Theme.menuBarWindowColor(for: id, snap: snap, kind: .session, normalOpacity: 1.0)
+                    let weeklyLabelColor = Theme.menuBarWindowColor(for: id, snap: snap, kind: .weekly, normalOpacity: 0.72)
+                    let weeklyValueColor = Theme.menuBarWindowColor(for: id, snap: snap, kind: .weekly, normalOpacity: 0.92)
+
                     if settings.menuBarMetricMode == .sessionAndWeekly {
                         // Two stacked rows (5h + 7d). ZStack hidden "100%" template guarantees
                         // zero truncation ("...") and 100% identical width for 0%..100%.
@@ -374,12 +398,12 @@ struct MenuBarStripView: View {
                             leadingIndicator(for: id, snap: snap, size: 14)
                             VStack(alignment: .leading, spacing: -2) {
                                 HStack(spacing: 2) {
-                                    fixedLabel("5h", font: stackLabelFont, color: color)
-                                    fixedPercent(snap.sessionPercent, font: stackValueFont, color: .white)
+                                    fixedLabel("5h", font: stackLabelFont, color: sessionLabelColor)
+                                    fixedPercent(snap.sessionPercent, font: stackValueFont, color: sessionValueColor)
                                 }
                                 HStack(spacing: 2) {
-                                    fixedLabel("7d", font: stackLabelFont, color: .white.opacity(0.68))
-                                    fixedPercent(snap.weeklyPercent, font: stackValueFont, color: .white.opacity(0.90))
+                                    fixedLabel("7d", font: stackLabelFont, color: weeklyLabelColor)
+                                    fixedPercent(snap.weeklyPercent, font: stackValueFont, color: weeklyValueColor)
                                 }
                             }
                         }
@@ -390,7 +414,7 @@ struct MenuBarStripView: View {
                         // zero truncation ("72...") and 100% identical width for 0%..100%.
                         HStack(spacing: 3.5) {
                             leadingIndicator(for: id, snap: snap, size: 13.5)
-                            fixedPercent(snap.sessionPercent, font: singleFont, color: .white)
+                            fixedPercent(snap.sessionPercent, font: singleFont, color: sessionValueColor)
                         }
                         .padding(.horizontal, 2)
                         .frame(height: 22)

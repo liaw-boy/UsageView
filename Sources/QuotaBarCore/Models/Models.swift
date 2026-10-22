@@ -73,6 +73,15 @@ public struct ProviderSnapshot: Codable, Sendable, Equatable {
     public var weeklyPercent: Double? {
         lines.filter { $0.kind == .weekly }.map(\.usedPercent).max()
     }
+
+    /// True when any window of `kind` has less than or equal to 1 hour (3600s) remaining before reset.
+    public func isResettingWithinOneHour(kind: WindowKind, now: Date = Date()) -> Bool {
+        lines.filter { $0.kind == kind }.contains { line in
+            guard let reset = line.resetsAt else { return false }
+            let remaining = reset.timeIntervalSince(now)
+            return remaining > 0 && remaining <= 3600
+        }
+    }
 }
 
 /// Burn-rate estimate: are we using the window faster than time is passing?
