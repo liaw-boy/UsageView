@@ -112,7 +112,7 @@ public struct UsageStatisticsView: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 13) {
             header
             providerPicker
             matrixTable
@@ -130,15 +130,15 @@ public struct UsageStatisticsView: View {
             Button {
                 onBack()
             } label: {
-                HStack(spacing: 3) {
+                HStack(spacing: 3.5) {
                     Image(systemName: "chevron.left")
-                        .font(.system(size: 11, weight: .bold))
+                        .font(.system(size: 12, weight: .bold))
                     Text("額度面板")
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .font(.system(size: 12.5, weight: .semibold, design: .rounded))
                 }
-                .foregroundStyle(.white.opacity(0.85))
-                .padding(.horizontal, 7)
-                .padding(.vertical, 3.5)
+                .foregroundStyle(.white.opacity(0.88))
+                .padding(.horizontal, 9)
+                .padding(.vertical, 4.5)
                 .background(Theme.cardBackground, in: Capsule())
                 .overlay(Capsule().strokeBorder(Theme.cardBorder, lineWidth: 1))
             }
@@ -147,7 +147,7 @@ public struct UsageStatisticsView: View {
             Spacer()
 
             Text("額度使用統計表")
-                .font(.system(size: 13.5, weight: .bold, design: .rounded))
+                .font(.system(size: 15, weight: .bold, design: .rounded))
                 .foregroundStyle(.white)
 
             Spacer()
@@ -155,15 +155,15 @@ public struct UsageStatisticsView: View {
             Button {
                 copyMarkdownTable()
             } label: {
-                HStack(spacing: 3) {
+                HStack(spacing: 3.5) {
                     Image(systemName: copiedToast ? "checkmark" : "doc.on.doc")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(.system(size: 11, weight: .semibold))
                     Text(copiedToast ? "已複製" : "複製")
-                        .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                        .font(.system(size: 11.5, weight: .semibold, design: .rounded))
                 }
-                .foregroundStyle(copiedToast ? Color(red: 0.30, green: 0.88, blue: 0.56) : .white.opacity(0.85))
-                .padding(.horizontal, 7)
-                .padding(.vertical, 3.5)
+                .foregroundStyle(copiedToast ? Color(red: 0.30, green: 0.88, blue: 0.56) : .white.opacity(0.88))
+                .padding(.horizontal, 9)
+                .padding(.vertical, 4.5)
                 .background(Theme.cardBackground, in: Capsule())
                 .overlay(Capsule().strokeBorder(Theme.cardBorder, lineWidth: 1))
             }
@@ -178,19 +178,19 @@ public struct UsageStatisticsView: View {
     private var providerPicker: some View {
         let filters: [ProviderFilter] = [.all] + activeProviders.map { .provider($0) }
         if filters.count > 2 {
-            HStack(spacing: 5) {
+            HStack(spacing: 6) {
                 ForEach(filters, id: \.self) { item in
                     let selected = selectedFilter == item
                     Button {
                         selectedFilter = item
                     } label: {
                         Text(item.title)
-                            .font(.system(size: 10.5, weight: selected ? .bold : .medium, design: .rounded))
-                            .foregroundStyle(selected ? .white : .white.opacity(0.65))
-                            .padding(.horizontal, 8.5)
-                            .padding(.vertical, 3.5)
-                            .background(selected ? Color.white.opacity(0.18) : Color.white.opacity(0.06), in: Capsule())
-                            .overlay(Capsule().strokeBorder(selected ? Color.white.opacity(0.3) : Color.clear, lineWidth: 0.8))
+                            .font(.system(size: 11.5, weight: selected ? .bold : .medium, design: .rounded))
+                            .foregroundStyle(selected ? .white : .white.opacity(0.70))
+                            .padding(.horizontal, 10.5)
+                            .padding(.vertical, 4.5)
+                            .background(selected ? Color.white.opacity(0.20) : Color.white.opacity(0.06), in: Capsule())
+                            .overlay(Capsule().strokeBorder(selected ? Color.white.opacity(0.35) : Color.clear, lineWidth: 0.8))
                     }
                     .buttonStyle(.plain)
                 }
@@ -208,16 +208,16 @@ public struct UsageStatisticsView: View {
             // Header row
             HStack {
                 Text("統計期間")
-                    .frame(width: 82, alignment: .leading)
+                    .frame(width: 92, alignment: .leading)
                 Text("Token 用量")
                     .frame(maxWidth: .infinity, alignment: .trailing)
                 Text("估算花費 (USD)")
-                    .frame(width: 96, alignment: .trailing)
+                    .frame(width: 108, alignment: .trailing)
             }
-            .font(.system(size: 10, weight: .bold, design: .rounded))
-            .foregroundStyle(.white.opacity(0.55))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            .font(.system(size: 11, weight: .bold, design: .rounded))
+            .foregroundStyle(.white.opacity(0.60))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
             .background(Color.white.opacity(0.04))
 
             Divider().overlay(Color.white.opacity(0.10))
@@ -257,8 +257,8 @@ public struct UsageStatisticsView: View {
             )
         }
         .background(Theme.cardBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Theme.cardBorder, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).strokeBorder(Theme.cardBorder, lineWidth: 1))
     }
 
     private func tableRow(
@@ -270,45 +270,45 @@ public struct UsageStatisticsView: View {
         isHighlight: Bool
     ) -> some View {
         HStack {
-            HStack(spacing: 4.5) {
+            HStack(spacing: 5) {
                 Image(systemName: icon)
-                    .font(.system(size: 9.5))
+                    .font(.system(size: 11.5))
                     .foregroundStyle(iconColor)
                 Text(period)
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.92))
+                    .font(.system(size: 12.5, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.95))
             }
-            .frame(width: 82, alignment: .leading)
+            .frame(width: 92, alignment: .leading)
 
-            VStack(alignment: .trailing, spacing: 0.5) {
+            VStack(alignment: .trailing, spacing: 1) {
                 Text(formatTokens(tokens))
-                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .font(.system(size: 13, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
                     .monospacedDigit()
                 if tokens > 0 {
                     Text(NumberFormatter.localizedString(from: NSNumber(value: tokens), number: .decimal))
-                        .font(.system(size: 8.5, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.40))
+                        .font(.system(size: 9.5, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.45))
                         .monospacedDigit()
                 }
             }
             .frame(maxWidth: .infinity, alignment: .trailing)
 
-            VStack(alignment: .trailing, spacing: 0.5) {
+            VStack(alignment: .trailing, spacing: 1) {
                 Text(String(format: "$%.2f", cost))
-                    .font(.system(size: 11.5, weight: .bold, design: .rounded))
+                    .font(.system(size: 13.5, weight: .bold, design: .rounded))
                     .foregroundStyle(Color(red: 0.35, green: 0.88, blue: 0.62))
                     .monospacedDigit()
                 let ntd = cost * 32.2
                 Text("≈ NT$\(Int(ntd.rounded()))")
-                    .font(.system(size: 8.5, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.40))
+                    .font(.system(size: 9.5, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.45))
                     .monospacedDigit()
             }
-            .frame(width: 96, alignment: .trailing)
+            .frame(width: 108, alignment: .trailing)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6.5)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
         .background(isHighlight ? Color.white.opacity(0.03) : Color.clear)
     }
 
@@ -319,8 +319,8 @@ public struct UsageStatisticsView: View {
         return VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text("模型明細")
-                    .font(.system(size: 11, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.85))
+                    .font(.system(size: 12.5, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.88))
 
                 Spacer()
 
@@ -331,10 +331,10 @@ public struct UsageStatisticsView: View {
                             modelPeriod = p
                         } label: {
                             Text(p.rawValue)
-                                .font(.system(size: 9.5, weight: isSel ? .bold : .medium, design: .rounded))
-                                .foregroundStyle(isSel ? .white : .white.opacity(0.55))
-                                .padding(.horizontal, 7)
-                                .padding(.vertical, 2.5)
+                                .font(.system(size: 10.5, weight: isSel ? .bold : .medium, design: .rounded))
+                                .foregroundStyle(isSel ? .white : .white.opacity(0.60))
+                                .padding(.horizontal, 8.5)
+                                .padding(.vertical, 3.5)
                                 .background(isSel ? Color.white.opacity(0.20) : Color.clear, in: Capsule())
                         }
                         .buttonStyle(.plain)
@@ -349,34 +349,34 @@ public struct UsageStatisticsView: View {
             let maxCost = models.map { periodCost($0, period: modelPeriod) }.max() ?? 1.0
 
             ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 5) {
+                VStack(spacing: 7) {
                     if models.isEmpty {
                         Text("此期間無模型紀錄")
-                            .font(.system(size: 10, design: .rounded))
+                            .font(.system(size: 11, design: .rounded))
                             .foregroundStyle(.white.opacity(0.40))
-                            .frame(maxWidth: .infinity, minHeight: 80, alignment: .center)
+                            .frame(maxWidth: .infinity, minHeight: 90, alignment: .center)
                     } else {
                         ForEach(models) { m in
                             let cost = periodCost(m, period: modelPeriod)
                             let tok = periodTokens(m, period: modelPeriod)
                             let fraction = maxCost > 0 ? min(1.0, max(0.04, cost / maxCost)) : 0.04
 
-                            VStack(alignment: .leading, spacing: 2) {
+                            VStack(alignment: .leading, spacing: 2.5) {
                                 HStack {
                                     Text(m.model)
-                                        .font(.system(size: 10, weight: .semibold, design: .rounded))
-                                        .foregroundStyle(.white.opacity(0.90))
+                                        .font(.system(size: 11.5, weight: .semibold, design: .rounded))
+                                        .foregroundStyle(.white.opacity(0.92))
                                         .lineLimit(1)
                                     Spacer()
                                     Text(formatTokens(tok))
-                                        .font(.system(size: 9.5, weight: .medium, design: .rounded))
-                                        .foregroundStyle(.white.opacity(0.60))
+                                        .font(.system(size: 11, weight: .medium, design: .rounded))
+                                        .foregroundStyle(.white.opacity(0.65))
                                         .monospacedDigit()
                                     Text(String(format: "$%.2f", cost))
-                                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                                        .font(.system(size: 11.5, weight: .bold, design: .rounded))
                                         .foregroundStyle(Color(red: 0.35, green: 0.88, blue: 0.62))
                                         .monospacedDigit()
-                                        .frame(width: 52, alignment: .trailing)
+                                        .frame(width: 58, alignment: .trailing)
                                 }
 
                                 // Visual share bar
@@ -384,24 +384,24 @@ public struct UsageStatisticsView: View {
                                     ZStack(alignment: .leading) {
                                         RoundedRectangle(cornerRadius: 2)
                                             .fill(Color.white.opacity(0.08))
-                                            .frame(height: 3.5)
+                                            .frame(height: 4)
                                         RoundedRectangle(cornerRadius: 2)
-                                            .fill(Color(red: 0.35, green: 0.88, blue: 0.62).opacity(0.75))
-                                            .frame(width: proxy.size.width * fraction, height: 3.5)
+                                            .fill(Color(red: 0.35, green: 0.88, blue: 0.62).opacity(0.78))
+                                            .frame(width: proxy.size.width * fraction, height: 4)
                                     }
                                 }
-                                .frame(height: 3.5)
+                                .frame(height: 4)
                             }
-                            .padding(.vertical, 1.5)
+                            .padding(.vertical, 2.5)
                         }
                     }
                 }
-                .padding(8.5)
+                .padding(9.5)
             }
-            .frame(height: 102)
+            .frame(height: 122)
             .background(Theme.cardBackground)
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Theme.cardBorder, lineWidth: 0.8))
+            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Theme.cardBorder, lineWidth: 0.8))
         }
     }
 
@@ -425,33 +425,33 @@ public struct UsageStatisticsView: View {
 
     private var recentDailySection: some View {
         let history = Array(currentStats.dailyHistory.prefix(5))
-        return VStack(alignment: .leading, spacing: 4) {
+        return VStack(alignment: .leading, spacing: 5) {
             Text("近期每日趨勢")
-                .font(.system(size: 10.5, weight: .bold, design: .rounded))
-                .foregroundStyle(.white.opacity(0.75))
+                .font(.system(size: 12, weight: .bold, design: .rounded))
+                .foregroundStyle(.white.opacity(0.80))
                 .padding(.horizontal, 2)
 
-            HStack(spacing: 4) {
+            HStack(spacing: 5) {
                 if history.isEmpty {
                     Text("暫無歷史資料")
-                        .font(.system(size: 9.5, design: .rounded))
+                        .font(.system(size: 10, design: .rounded))
                         .foregroundStyle(.white.opacity(0.40))
-                        .frame(maxWidth: .infinity, minHeight: 28)
-                        .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 5))
+                        .frame(maxWidth: .infinity, minHeight: 34)
+                        .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 6))
                 } else {
                     ForEach(history.reversed()) { item in
                         VStack(spacing: 2) {
                             Text(String(format: "$%.1f", item.costUSD))
-                                .font(.system(size: 8, weight: .bold, design: .rounded))
+                                .font(.system(size: 10.5, weight: .bold, design: .rounded))
                                 .foregroundStyle(Color(red: 0.35, green: 0.88, blue: 0.62))
                                 .monospacedDigit()
                             Text(shortDate(item.date))
-                                .font(.system(size: 7.5, design: .rounded))
-                                .foregroundStyle(.white.opacity(0.45))
+                                .font(.system(size: 9, design: .rounded))
+                                .foregroundStyle(.white.opacity(0.50))
                         }
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 3.5)
-                        .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 5))
+                        .padding(.vertical, 5.5)
+                        .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 6))
                     }
                 }
             }
@@ -470,16 +470,16 @@ public struct UsageStatisticsView: View {
     // MARK: - Footer
 
     private var footerNote: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 4.5) {
             Image(systemName: "checkmark.shield.fill")
-                .font(.system(size: 8.5))
+                .font(.system(size: 9.5))
                 .foregroundStyle(Color(red: 0.35, green: 0.88, blue: 0.62))
             Text("100% 本機離線計算 · 官方 API 等效價值 · 零額度消耗")
-                .font(.system(size: 8.5, design: .rounded))
-                .foregroundStyle(.white.opacity(0.48))
+                .font(.system(size: 9.5, design: .rounded))
+                .foregroundStyle(.white.opacity(0.50))
             Spacer()
         }
-        .padding(.top, 2)
+        .padding(.top, 4)
     }
 
     // MARK: - Helpers
