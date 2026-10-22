@@ -326,15 +326,27 @@ public struct UsageStatisticsView: View {
 
                     Spacer()
 
-                    Picker("", selection: $modelPeriod) {
+                    HStack(spacing: 2) {
                         ForEach(MetricPeriod.allCases) { p in
-                            Text(p.rawValue).tag(p)
+                            let isSel = modelPeriod == p
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.14)) { modelPeriod = p }
+                            } label: {
+                                Text(p.rawValue)
+                                    .font(.system(size: 9.5, weight: isSel ? .bold : .medium, design: .rounded))
+                                    .foregroundStyle(isSel ? .white : .white.opacity(0.55))
+                                    .padding(.horizontal, 7)
+                                    .padding(.vertical, 2.5)
+                                    .background(isSel ? Color.white.opacity(0.20) : Color.clear, in: Capsule())
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
-                    .pickerStyle(.segmented)
-                    .frame(width: 170)
-                    .scaleEffect(0.85, anchor: .trailing)
+                    .padding(2)
+                    .background(Color.white.opacity(0.06), in: Capsule())
+                    .overlay(Capsule().strokeBorder(Color.white.opacity(0.12), lineWidth: 0.8))
                 }
+                .padding(.horizontal, 2)
 
                 let maxCost = models.map { periodCost($0, period: modelPeriod) }.max() ?? 1.0
 
@@ -412,6 +424,7 @@ public struct UsageStatisticsView: View {
                 Text("近期每日趨勢")
                     .font(.system(size: 10.5, weight: .bold, design: .rounded))
                     .foregroundStyle(.white.opacity(0.75))
+                    .padding(.horizontal, 2)
 
                 HStack(spacing: 4) {
                     ForEach(history.reversed()) { item in
