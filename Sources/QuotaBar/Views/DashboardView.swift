@@ -19,10 +19,10 @@ struct DashboardView: View {
                 }
                 footer
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .frame(width: 356)
-            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .frame(width: 368)
+            .fixedSize(horizontal: true, vertical: true)
             .background(Theme.panelBackground)
             .environment(\.colorScheme, .dark)
         }
@@ -764,6 +764,8 @@ private struct PillToggleButton: View {
                     .font(.system(size: 9, weight: .bold))
                 Text(title)
                     .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
             }
             .foregroundStyle(isOn ? .white : .white.opacity(0.42))
             .padding(.horizontal, 7)

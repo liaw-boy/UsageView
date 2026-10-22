@@ -71,8 +71,8 @@ final class StatusItemController: NSObject, ObservableObject {
             guard let self else { return }
             view.layoutSubtreeIfNeeded()
             let fitting = view.fittingSize
-            if fitting.height > 10 {
-                self.popover.contentSize = NSSize(width: 356, height: fitting.height)
+            if fitting.height > 10 && fitting.width > 10 {
+                self.popover.contentSize = NSSize(width: max(368, fitting.width), height: fitting.height)
             }
         }
     }
@@ -87,7 +87,7 @@ final class StatusItemController: NSObject, ObservableObject {
             button.image = image
             button.title = ""
             // Lock exact status item length so carousel rotation or digit count changes never resize the button.
-            statusItem.length = image.size.width
+            statusItem.length = ceil(image.size.width) + 2
         } else {
             button.image = nil
             button.title = "◎ UsageView"

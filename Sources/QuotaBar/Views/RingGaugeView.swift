@@ -319,75 +319,86 @@ struct MenuBarStripView: View {
         }
     }
 
+    @ViewBuilder
+    private func fixedLabel(_ text: String, font: Font, color: Color) -> some View {
+        ZStack(alignment: .leading) {
+            Text("5h").font(font).fixedSize().hidden()
+            Text("7d").font(font).fixedSize().hidden()
+            Text(text)
+                .font(font)
+                .foregroundStyle(color)
+                .lineLimit(1)
+                .fixedSize()
+        }
+    }
+
+    @ViewBuilder
+    private func fixedPercent(_ used: Double?, font: Font, color: Color) -> some View {
+        ZStack(alignment: .trailing) {
+            Text("100%")
+                .font(font)
+                .monospacedDigit()
+                .fixedSize()
+                .hidden()
+            Text(percentString(used))
+                .font(font)
+                .foregroundStyle(color)
+                .monospacedDigit()
+                .lineLimit(1)
+                .fixedSize()
+        }
+    }
+
     var body: some View {
-        HStack(spacing: 5) {
+        let singleFont = Font.system(size: 12, weight: .bold, design: .rounded)
+        let stackLabelFont = Font.system(size: 9.5, weight: .heavy, design: .rounded)
+        let stackValueFont = Font.system(size: 10.5, weight: .bold, design: .rounded)
+
+        HStack(spacing: 6) {
             if activeItems.isEmpty {
-                HStack(spacing: 3) {
+                HStack(spacing: 3.5) {
                     Image(systemName: "waveform.path.ecg")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(.white)
-                    Text("--%")
-                        .font(.system(size: 12, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white)
-                        .monospacedDigit()
+                    fixedPercent(nil, font: singleFont, color: .white)
                 }
-                .frame(width: 44, height: 22)
+                .padding(.horizontal, 2)
+                .frame(height: 22)
             } else {
                 ForEach(activeItems, id: \.0) { id, snap in
                     let color = Theme.brandColor(id)
                     if settings.menuBarMetricMode == .sessionAndWeekly {
-                        // Two stacked rows filling the full 22pt vertical height of the menu bar,
-                        // with explicit "5h" and "7d" labels that never truncate and locked 62pt width.
-                        HStack(spacing: 3) {
-                            leadingIndicator(for: id, snap: snap, size: 14.5)
-                            VStack(alignment: .leading, spacing: -2.5) {
+                        // Two stacked rows (5h + 7d). ZStack hidden "100%" template guarantees
+                        // zero truncation ("...") and 100% identical width for 0%..100%.
+                        HStack(spacing: 3.5) {
+                            leadingIndicator(for: id, snap: snap, size: 14)
+                            VStack(alignment: .leading, spacing: -2) {
                                 HStack(spacing: 2) {
-                                    Text("5h")
-                                        .font(.system(size: 9.5, weight: .heavy, design: .rounded))
-                                        .foregroundStyle(color)
-                                        .lineLimit(1)
-                                        .fixedSize(horizontal: true, vertical: false)
-                                        .frame(width: 16, alignment: .leading)
-                                    Text(percentString(snap.sessionPercent))
-                                        .font(.system(size: 10.5, weight: .bold, design: .rounded))
-                                        .foregroundStyle(.white)
-                                        .monospacedDigit()
-                                        .lineLimit(1)
-                                        .fixedSize(horizontal: true, vertical: false)
-                                        .frame(width: 28, alignment: .trailing)
+                                    fixedLabel("5h", font: stackLabelFont, color: color)
+                                    fixedPercent(snap.sessionPercent, font: stackValueFont, color: .white)
                                 }
                                 HStack(spacing: 2) {
-                                    Text("7d")
-                                        .font(.system(size: 9.5, weight: .heavy, design: .rounded))
-                                        .foregroundStyle(.white.opacity(0.68))
-                                        .lineLimit(1)
-                                        .fixedSize(horizontal: true, vertical: false)
-                                        .frame(width: 16, alignment: .leading)
-                                    Text(percentString(snap.weeklyPercent))
-                                        .font(.system(size: 10.5, weight: .bold, design: .rounded))
-                                        .foregroundStyle(.white.opacity(0.90))
-                                        .monospacedDigit()
-                                        .lineLimit(1)
-                                        .fixedSize(horizontal: true, vertical: false)
-                                        .frame(width: 28, alignment: .trailing)
+                                    fixedLabel("7d", font: stackLabelFont, color: .white.opacity(0.68))
+                                    fixedPercent(snap.weeklyPercent, font: stackValueFont, color: .white.opacity(0.90))
                                 }
                             }
                         }
-                        .frame(width: 63, height: 22)
+                        .padding(.horizontal, 2)
+                        .frame(height: 22)
                     } else {
-                        // Single 5h row with AI logo (or progress ring) on the left and locked 45pt width.
-                        HStack(spacing: 3) {
-                            leadingIndicator(for: id, snap: snap, size: 14)
-                            Text(percentString(snap.sessionPercent))
-                                .font(.system(size: 12.5, weight: .bold, design: .rounded))
-                                .foregroundStyle(.white)
-                                .monospacedDigit()
+                        // Single 5h row. ZStack hidden "100%" template guarantees
+                        // zero truncation ("72...") and 100% identical width for 0%..100%.
+                        HStack(spacing: 3.5) {
+                            leadingIndicator(for: id, snap: snap, size: 13.5)
+                            fixedPercent(snap.sessionPercent, font: singleFont, color: .white)
                         }
-                        .frame(width: 45, height: 22, alignment: .center)
+                        .padding(.horizontal, 2)
+                        .frame(height: 22)
                     }
                 }
             }
         }
+        .fixedSize()
         .environment(\.colorScheme, .dark)
     }
 }
