@@ -8,16 +8,31 @@ struct DashboardView: View {
     @ObservedObject var updater: UpdateService
     @ObservedObject var controller: StatusItemController
 
+    @State private var showingStats = false
+    @State private var statsProvider: ProviderID? = nil
+
     var body: some View {
         TimelineView(.periodic(from: .now, by: 15)) { _ in
             VStack(spacing: 6) {
-                header
                 if controller.showingSettings {
+                    header
                     SettingsView(settings: settings, updater: updater)
+                    footer
+                } else if showingStats {
+                    UsageStatisticsView(
+                        store: store,
+                        initialProvider: statsProvider,
+                        onBack: {
+                            withAnimation(.easeInOut(duration: 0.16)) {
+                                showingStats = false
+                            }
+                        }
+                    )
                 } else {
+                    header
                     cardsContent
+                    footer
                 }
-                footer
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
@@ -25,6 +40,9 @@ struct DashboardView: View {
             .fixedSize(horizontal: true, vertical: true)
             .background(Theme.panelBackground)
             .environment(\.colorScheme, .dark)
+            .onChange(of: showingStats) {
+                controller.syncPopoverSize()
+            }
         }
     }
 
@@ -94,6 +112,20 @@ struct DashboardView: View {
             .help("點擊切換「已用 %」與「剩餘 %」")
 
             Button {
+                statsProvider = nil
+                withAnimation(.easeInOut(duration: 0.16)) { showingStats = true }
+            } label: {
+                Image(systemName: "chart.bar.xaxis")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.90))
+                    .frame(width: 24, height: 24)
+                    .background(Theme.cardBackground, in: Circle())
+                    .overlay(Circle().strokeBorder(Theme.cardBorder, lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+            .help("查看 Token 與花費統計表（當日 · 週 · 月）")
+
+            Button {
                 Task { await store.refresh(manual: true) }
             } label: {
                 Image(systemName: "arrow.clockwise")
@@ -158,7 +190,11 @@ struct DashboardView: View {
                         provider: id,
                         state: store.states[id] ?? ProviderState(),
                         showRemaining: settings.showRemaining,
-                        onToggleMode: { settings.showRemaining.toggle() }
+                        onToggleMode: { settings.showRemaining.toggle() },
+                        onOpenStats: {
+                            statsProvider = id
+                            withAnimation(.easeInOut(duration: 0.16)) { showingStats = true }
+                        }
                     )
                 }
             }
@@ -190,6 +226,25 @@ struct DashboardView: View {
             .buttonStyle(.plain)
 
             if !controller.showingSettings && !store.panelProviders.isEmpty {
+                Button {
+                    statsProvider = nil
+                    withAnimation(.easeInOut(duration: 0.16)) { showingStats.toggle() }
+                } label: {
+                    HStack(spacing: 3.5) {
+                        Image(systemName: "chart.bar.xaxis")
+                            .font(.system(size: 10.5, weight: .semibold))
+                        Text("統計表")
+                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    }
+                    .foregroundStyle(.white.opacity(0.85))
+                    .padding(.horizontal, 8.5)
+                    .padding(.vertical, 4)
+                    .background(Theme.cardBackground, in: Capsule())
+                    .overlay(Capsule().strokeBorder(Theme.cardBorder, lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .help("查看 Token 與花費統計表（當日 · 週 · 月）")
+
                 Button {
                     ShareExporter.shareAllCards(store: store, showRemaining: settings.showRemaining)
                     withAnimation(.easeInOut(duration: 0.15)) { sharedDashboardToast = true }
@@ -234,6 +289,7 @@ struct ProviderCardView: View {
     let showRemaining: Bool
     let onToggleMode: () -> Void
     var isSnapshotExport: Bool = false
+    var onOpenStats: (() -> Void)? = nil
 
     @State private var isHovered = false
     @State private var copiedToast = false
@@ -335,7 +391,7 @@ struct ProviderCardView: View {
                 }
 
                 if let snap = state.snapshot, snap.localSpend?.hasAnyUsage == true || snap.extraUsageText != nil {
-                    CardSpendFooterRow(spend: snap.localSpend, extraUsageText: snap.extraUsageText)
+                    CardSpendFooterRow(spend: snap.localSpend, extraUsageText: snap.extraUsageText, onOpenStats: onOpenStats)
                 }
             }
         }
@@ -408,21 +464,35 @@ private struct PlanBadgeView: View {
 private struct CardSpendFooterRow: View {
     let spend: LocalSpendSummary?
     let extraUsageText: String?
+    var onOpenStats: (() -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             if let spend, spend.hasAnyUsage {
-                HStack(spacing: 4.5) {
-                    Image(systemName: "dollarsign.circle.fill")
-                        .font(.system(size: 9.5))
-                        .foregroundStyle(Color(red: 0.35, green: 0.85, blue: 0.62).opacity(0.88))
-                    Text(spendLabel(spend))
-                        .font(.system(size: 9.5, weight: .medium, design: .rounded))
-                        .monospacedDigit()
-                        .foregroundStyle(.white.opacity(0.60))
-                        .lineLimit(1)
-                    Spacer(minLength: 0)
+                Button {
+                    onOpenStats?()
+                } label: {
+                    HStack(spacing: 4.5) {
+                        Image(systemName: "dollarsign.circle.fill")
+                            .font(.system(size: 9.5))
+                            .foregroundStyle(Color(red: 0.35, green: 0.85, blue: 0.62).opacity(0.88))
+                        Text(spendLabel(spend))
+                            .font(.system(size: 9.5, weight: .medium, design: .rounded))
+                            .monospacedDigit()
+                            .foregroundStyle(.white.opacity(0.68))
+                            .lineLimit(1)
+                        Spacer(minLength: 0)
+                        HStack(spacing: 2) {
+                            Text("統計表")
+                                .font(.system(size: 8.5, weight: .semibold, design: .rounded))
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 7.5, weight: .bold))
+                        }
+                        .foregroundStyle(Color(red: 0.35, green: 0.85, blue: 0.62).opacity(0.85))
+                    }
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
             }
             if let extra = extraUsageText {
                 HStack(spacing: 4.5) {
@@ -439,14 +509,14 @@ private struct CardSpendFooterRow: View {
             }
         }
         .padding(.top, 1.5)
-        .help("依本機 CLI / IDE 對話紀錄計算之 Token 用量與官方 API 等效美金價值（100% 本機離線統計）")
+        .help("點擊查看詳細額度與 Token 用量統計表（100% 本機離線統計）")
     }
 
     private func spendLabel(_ s: LocalSpendSummary) -> String {
         let today = String(format: "$%.2f", s.todayCostUSD)
+        let week = String(format: "$%.2f", s.weekCostUSD)
         let month = String(format: "$%.2f", s.monthCostUSD)
-        let tok = Self.formatTokens(s.monthTokens)
-        return "今日 \(today) · 30天 \(month) (\(tok))"
+        return "今日 \(today) · 7D \(week) · 30D \(month)"
     }
 
     static func formatTokens(_ n: Int) -> String {

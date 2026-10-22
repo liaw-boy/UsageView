@@ -95,21 +95,102 @@ public struct MetricLine: Codable, Sendable, Identifiable, Equatable {
     }
 }
 
-/// Summary of local token usage and estimated API-equivalent USD value over Today and the last 30 days.
-public struct LocalSpendSummary: Codable, Sendable, Equatable {
+/// Summary of local token usage and estimated API-equivalent USD value over Today, the last 7 days (Week), and 30 days (Month).
+public struct ModelSpendBreakdown: Codable, Sendable, Equatable, Identifiable {
+    public var id: String { model }
+    public let model: String
     public let todayCostUSD: Double
     public let todayTokens: Int
+    public let weekCostUSD: Double
+    public let weekTokens: Int
     public let monthCostUSD: Double
     public let monthTokens: Int
 
-    public init(todayCostUSD: Double, todayTokens: Int, monthCostUSD: Double, monthTokens: Int) {
+    public init(
+        model: String,
+        todayCostUSD: Double = 0,
+        todayTokens: Int = 0,
+        weekCostUSD: Double = 0,
+        weekTokens: Int = 0,
+        monthCostUSD: Double = 0,
+        monthTokens: Int = 0
+    ) {
+        self.model = model
         self.todayCostUSD = todayCostUSD
         self.todayTokens = todayTokens
+        self.weekCostUSD = weekCostUSD
+        self.weekTokens = weekTokens
         self.monthCostUSD = monthCostUSD
         self.monthTokens = monthTokens
     }
+}
 
-    public var hasAnyUsage: Bool { todayTokens > 0 || monthTokens > 0 || todayCostUSD > 0 || monthCostUSD > 0 }
+public struct DailyUsageItem: Codable, Sendable, Equatable, Identifiable {
+    public var id: String { date }
+    public let date: String // "yyyy-MM-dd"
+    public let tokens: Int
+    public let costUSD: Double
+
+    public init(date: String, tokens: Int, costUSD: Double) {
+        self.date = date
+        self.tokens = tokens
+        self.costUSD = costUSD
+    }
+}
+
+public struct LocalSpendSummary: Codable, Sendable, Equatable {
+    public let todayCostUSD: Double
+    public let todayTokens: Int
+    public let weekCostUSD: Double
+    public let weekTokens: Int
+    public let monthCostUSD: Double
+    public let monthTokens: Int
+    public let models: [ModelSpendBreakdown]
+    public let dailyHistory: [DailyUsageItem]
+
+    public init(
+        todayCostUSD: Double,
+        todayTokens: Int,
+        weekCostUSD: Double = 0,
+        weekTokens: Int = 0,
+        monthCostUSD: Double,
+        monthTokens: Int,
+        models: [ModelSpendBreakdown] = [],
+        dailyHistory: [DailyUsageItem] = []
+    ) {
+        self.todayCostUSD = todayCostUSD
+        self.todayTokens = todayTokens
+        self.weekCostUSD = weekCostUSD
+        self.weekTokens = weekTokens
+        self.monthCostUSD = monthCostUSD
+        self.monthTokens = monthTokens
+        self.models = models
+        self.dailyHistory = dailyHistory
+    }
+
+    public enum CodingKeys: String, CodingKey {
+        case todayCostUSD, todayTokens, weekCostUSD, weekTokens, monthCostUSD, monthTokens, models, dailyHistory
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let todayCost = try c.decode(Double.self, forKey: .todayCostUSD)
+        let todayTok = try c.decode(Int.self, forKey: .todayTokens)
+        let monthCost = try c.decode(Double.self, forKey: .monthCostUSD)
+        let monthTok = try c.decode(Int.self, forKey: .monthTokens)
+        self.todayCostUSD = todayCost
+        self.todayTokens = todayTok
+        self.monthCostUSD = monthCost
+        self.monthTokens = monthTok
+        self.weekCostUSD = try c.decodeIfPresent(Double.self, forKey: .weekCostUSD) ?? todayCost
+        self.weekTokens = try c.decodeIfPresent(Int.self, forKey: .weekTokens) ?? todayTok
+        self.models = try c.decodeIfPresent([ModelSpendBreakdown].self, forKey: .models) ?? []
+        self.dailyHistory = try c.decodeIfPresent([DailyUsageItem].self, forKey: .dailyHistory) ?? []
+    }
+
+    public var hasAnyUsage: Bool {
+        todayTokens > 0 || weekTokens > 0 || monthTokens > 0 || todayCostUSD > 0 || weekCostUSD > 0 || monthCostUSD > 0
+    }
 }
 
 public struct ProviderSnapshot: Codable, Sendable, Equatable {

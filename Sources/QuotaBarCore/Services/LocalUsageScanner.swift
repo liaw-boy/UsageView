@@ -11,6 +11,37 @@ public actor LocalUsageScanner {
         public let costUSD: Double
         public let dedupKey: String?
         public let isSidechain: Bool
+        public let model: String?
+
+        public init(
+            timestamp: Date,
+            tokens: Int,
+            costUSD: Double,
+            dedupKey: String? = nil,
+            isSidechain: Bool = false,
+            model: String? = nil
+        ) {
+            self.timestamp = timestamp
+            self.tokens = tokens
+            self.costUSD = costUSD
+            self.dedupKey = dedupKey
+            self.isSidechain = isSidechain
+            self.model = model
+        }
+
+        public enum CodingKeys: String, CodingKey {
+            case timestamp, tokens, costUSD, dedupKey, isSidechain, model
+        }
+
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            self.timestamp = try c.decode(Date.self, forKey: .timestamp)
+            self.tokens = try c.decode(Int.self, forKey: .tokens)
+            self.costUSD = try c.decode(Double.self, forKey: .costUSD)
+            self.dedupKey = try c.decodeIfPresent(String.self, forKey: .dedupKey)
+            self.isSidechain = try c.decodeIfPresent(Bool.self, forKey: .isSidechain) ?? false
+            self.model = try c.decodeIfPresent(String.self, forKey: .model)
+        }
     }
 
     private struct CachedFile: Codable, Sendable {
@@ -44,7 +75,8 @@ public actor LocalUsageScanner {
         ensureDiskCacheLoaded()
         let cal = Calendar.current
         let startOfToday = cal.startOfDay(for: now)
-        guard let since = cal.date(byAdding: .day, value: -30, to: startOfToday) else { return nil }
+        guard let startOfWeek = cal.date(byAdding: .day, value: -7, to: startOfToday),
+              let since = cal.date(byAdding: .day, value: -30, to: startOfToday) else { return nil }
 
         let beforeCount = fileCache.count
         let records: [Record]
@@ -63,24 +95,111 @@ public actor LocalUsageScanner {
 
         var todayCost = 0.0
         var todayTok = 0
+        var weekCost = 0.0
+        var weekTok = 0
         var monthCost = 0.0
         var monthTok = 0
+
+        struct ModelAcc {
+            var todayCost: Double = 0
+            var todayTok: Int = 0
+            var weekCost: Double = 0
+            var weekTok: Int = 0
+            var monthCost: Double = 0
+            var monthTok: Int = 0
+        }
+
+        var modelAcc: [String: ModelAcc] = [:]
+        var dailyAcc: [String: (tok: Int, cost: Double)] = [:]
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+        dateFormatter.timeZone = TimeZone.current
 
         for r in records where r.timestamp >= since {
             monthCost += r.costUSD
             monthTok += r.tokens
+
+            let mName = Self.cleanModelName(r.model, provider: provider)
+            var acc = modelAcc[mName] ?? ModelAcc()
+            acc.monthCost += r.costUSD
+            acc.monthTok += r.tokens
+
+            let dayStr = dateFormatter.string(from: r.timestamp)
+            var d = dailyAcc[dayStr] ?? (0, 0.0)
+            d.tok += r.tokens
+            d.cost += r.costUSD
+            dailyAcc[dayStr] = d
+
+            if r.timestamp >= startOfWeek {
+                weekCost += r.costUSD
+                weekTok += r.tokens
+                acc.weekCost += r.costUSD
+                acc.weekTok += r.tokens
+            }
             if r.timestamp >= startOfToday {
                 todayCost += r.costUSD
                 todayTok += r.tokens
+                acc.todayCost += r.costUSD
+                acc.todayTok += r.tokens
             }
+            modelAcc[mName] = acc
         }
+
+        let modelList = modelAcc.map { key, v in
+            ModelSpendBreakdown(
+                model: key,
+                todayCostUSD: v.todayCost,
+                todayTokens: v.todayTok,
+                weekCostUSD: v.weekCost,
+                weekTokens: v.weekTok,
+                monthCostUSD: v.monthCost,
+                monthTokens: v.monthTok
+            )
+        }.sorted { ($0.monthCostUSD, $0.monthTokens) > ($1.monthCostUSD, $1.monthTokens) }
+
+        let historyList = dailyAcc.map { dateStr, val in
+            DailyUsageItem(date: dateStr, tokens: val.tok, costUSD: val.cost)
+        }.sorted { $0.date > $1.date }
+
         let summary = LocalSpendSummary(
             todayCostUSD: todayCost,
             todayTokens: todayTok,
+            weekCostUSD: weekCost,
+            weekTokens: weekTok,
             monthCostUSD: monthCost,
-            monthTokens: monthTok
+            monthTokens: monthTok,
+            models: modelList,
+            dailyHistory: historyList
         )
         return summary.hasAnyUsage ? summary : nil
+    }
+
+    public static func cleanModelName(_ raw: String?, provider: ProviderID) -> String {
+        guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+            switch provider {
+            case .antigravity: return "Gemini Pro"
+            case .claude: return "Claude Sonnet"
+            case .codex: return "Codex"
+            }
+        }
+        let l = raw.lowercased()
+        if l.contains("gemini-3.1-pro") || l.contains("gemini-3-pro") { return "Gemini 3.1 Pro" }
+        if l.contains("gemini-2.5-pro") { return "Gemini 2.5 Pro" }
+        if l.contains("gemini-2.5-flash") { return "Gemini 2.5 Flash" }
+        if l.contains("flash") { return "Gemini Flash" }
+        if l.contains("argon") { return "Gemini Argon" }
+        if l.contains("sonnet-4-6") { return "Claude Sonnet 4.6" }
+        if l.contains("sonnet-4-5") { return "Claude Sonnet 4.5" }
+        if l.contains("sonnet-3-7") || l.contains("3-7-sonnet") { return "Claude 3.7 Sonnet" }
+        if l.contains("sonnet-3-5") || l.contains("3-5-sonnet") { return "Claude 3.5 Sonnet" }
+        if l.contains("opus") { return "Claude Opus" }
+        if l.contains("haiku") { return "Claude Haiku" }
+        if l.contains("fable") { return "Claude Fable" }
+        if l.contains("gpt-5") { return "GPT-5" }
+        if l.contains("gpt-4") { return "GPT-4o" }
+        if l.contains("mini") { return "Codex Mini" }
+        if l.contains("gemini") { return "Gemini Pro" }
+        return raw
     }
 
     // MARK: - 1. Claude (`~/.claude/projects/**/*.jsonl`)
@@ -191,7 +310,7 @@ public actor LocalUsageScanner {
                 ?? extractJSONStringValue(key: #""requestId":""#, in: tailSlice)
             let key = msgID.map { "\($0)|\(reqID ?? "")" }
             let sidechain = headerSlice.range(of: Data(#""isSidechain":true"#.utf8)) != nil
-            out.append(Record(timestamp: ts, tokens: totalTokens, costUSD: cost, dedupKey: key, isSidechain: sidechain))
+            out.append(Record(timestamp: ts, tokens: totalTokens, costUSD: cost, dedupKey: key, isSidechain: sidechain, model: model))
         }
         return out
     }
@@ -322,7 +441,7 @@ public actor LocalUsageScanner {
                 cached: min(cachedTok, inTok),
                 output: outTok + reasonTok
             )
-            out.append(Record(timestamp: ts, tokens: total, costUSD: cost, dedupKey: nil, isSidechain: false))
+            out.append(Record(timestamp: ts, tokens: total, costUSD: cost, dedupKey: nil, isSidechain: false, model: model))
         }
         return out
     }
@@ -409,7 +528,8 @@ public actor LocalUsageScanner {
                     tokens: total,
                     costUSD: cost,
                     dedupKey: nil,
-                    isSidechain: false
+                    isSidechain: false,
+                    model: ev.modelID ?? ev.label ?? "gemini-3.1-pro"
                 ))
             }
             return out

@@ -26,7 +26,7 @@ cat > $APP/Contents/Info.plist <<EOF
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundleIconName</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>0.9.2</string>
+  <key>CFBundleShortVersionString</key><string>0.9.3</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSUIElement</key><true/>
 </dict></plist>
@@ -44,4 +44,4 @@ ln -s /Applications "$DMG_STAGE/Applications"
 hdiutil create -volname "UsageView" -srcfolder "$DMG_STAGE" -ov -format UDZO UsageView.dmg >/dev/null
 rm -rf "$(dirname "$DMG_STAGE")"
 
-echo "Built $APP, UsageView.app.zip, and UsageView.dmg (UsageView v0.9.2)"
+echo "Built $APP, UsageView.app.zip, and UsageView.dmg (UsageView v0.9.3)"
