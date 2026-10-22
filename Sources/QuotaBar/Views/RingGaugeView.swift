@@ -222,7 +222,8 @@ struct DualRingGauge: View {
     @ViewBuilder
     private func singleRing(used: Double, inset: CGFloat) -> some View {
         let color = Theme.ringColor(for: provider, usedPercent: used)
-        let progress = min(max(used / 100, 0.005), 1)
+        let displayVal = showRemaining ? max(0, 100.0 - used) : used
+        let progress = min(max(displayVal / 100, 0.005), 1)
         ZStack {
             Circle()
                 .inset(by: inset + lineWidth / 2)
@@ -242,6 +243,9 @@ struct DualRingGauge: View {
         let c1 = Theme.ringColor(for: .antigravity, usedPercent: geminiUsed, secondaryPool: false)
         let c2 = Theme.ringColor(for: .antigravity, usedPercent: thirdPartyUsed, secondaryPool: true)
 
+        let gDisplay = showRemaining ? max(0, 100.0 - geminiUsed) : geminiUsed
+        let tpDisplay = showRemaining ? max(0, 100.0 - thirdPartyUsed) : thirdPartyUsed
+
         ZStack {
             Circle()
                 .inset(by: inset + lineWidth / 2)
@@ -250,7 +254,7 @@ struct DualRingGauge: View {
                 .rotationEffect(.degrees(-90))
             Circle()
                 .inset(by: inset + lineWidth / 2)
-                .trim(from: 0.03, to: 0.03 + 0.44 * min(max(geminiUsed / 100, 0.01), 1))
+                .trim(from: 0.03, to: 0.03 + 0.44 * min(max(gDisplay / 100, 0.01), 1))
                 .stroke(c1, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                 .rotationEffect(.degrees(-90))
 
@@ -261,7 +265,7 @@ struct DualRingGauge: View {
                 .rotationEffect(.degrees(-90))
             Circle()
                 .inset(by: inset + lineWidth / 2)
-                .trim(from: 0.53, to: 0.53 + 0.44 * min(max(thirdPartyUsed / 100, 0.01), 1))
+                .trim(from: 0.53, to: 0.53 + 0.44 * min(max(tpDisplay / 100, 0.01), 1))
                 .stroke(c2, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                 .rotationEffect(.degrees(-90))
         }
