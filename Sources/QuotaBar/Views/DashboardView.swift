@@ -799,10 +799,22 @@ private struct SettingsToggleRow: View {
                     .foregroundStyle(.white.opacity(0.50))
             }
             Spacer()
-            Toggle("", isOn: $isOn)
-                .labelsHidden()
-                .toggleStyle(.switch)
-                .controlSize(.mini)
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    isOn.toggle()
+                }
+            } label: {
+                ZStack(alignment: isOn ? .trailing : .leading) {
+                    Capsule()
+                        .fill(isOn ? Color(red: 0.20, green: 0.78, blue: 0.48) : Color.white.opacity(0.14))
+                        .frame(width: 32, height: 18)
+                    Circle()
+                        .fill(.white)
+                        .frame(width: 14, height: 14)
+                        .padding(.horizontal, 2)
+                }
+            }
+            .buttonStyle(.plain)
         }
     }
 }

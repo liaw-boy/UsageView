@@ -172,6 +172,36 @@ public final class SnapshotStore: ObservableObject {
         try? JSONEncoder().encode(snaps).write(to: cacheURL, options: .atomic)
     }
 
-    // Test hooks
+    // Test & Docs preview hooks
     func backoffUntil(_ id: ProviderID) -> Date? { states[id]?.backoffUntil }
+
+    public func populateShowcaseData() {
+        let now = Date()
+        states[.claude]?.snapshot = ProviderSnapshot(
+            provider: .claude,
+            lines: [
+                MetricLine(id: "5h", label: "5 小時", kind: .session, usedPercent: 28, resetsAt: now.addingTimeInterval(3 * 3600 + 18 * 60)),
+                MetricLine(id: "7d", label: "每週", kind: .weekly, usedPercent: 14, resetsAt: now.addingTimeInterval(5 * 86400 + 12 * 3600)),
+            ],
+            fetchedAt: now
+        )
+        states[.codex]?.snapshot = ProviderSnapshot(
+            provider: .codex,
+            lines: [
+                MetricLine(id: "5h", label: "5 小時", kind: .session, usedPercent: 62, resetsAt: now.addingTimeInterval(2 * 3600 + 40 * 60)),
+                MetricLine(id: "7d", label: "每週", kind: .weekly, usedPercent: 45, resetsAt: now.addingTimeInterval(4 * 86400 + 6 * 3600)),
+            ],
+            fetchedAt: now
+        )
+        states[.antigravity]?.snapshot = ProviderSnapshot(
+            provider: .antigravity,
+            lines: [
+                MetricLine(id: "gemini-5h", label: "Gemini · 5 小時", kind: .session, pool: "gemini", usedPercent: 8, resetsAt: now.addingTimeInterval(1 * 3600 + 25 * 60)),
+                MetricLine(id: "gemini-weekly", label: "Gemini · 每週", kind: .weekly, pool: "gemini", usedPercent: 12, resetsAt: now.addingTimeInterval(6 * 86400 + 4 * 3600)),
+                MetricLine(id: "3p-5h", label: "Claude/GPT · 5 小時", kind: .session, pool: "3p", usedPercent: 84, resetsAt: now.addingTimeInterval(42 * 60)),
+                MetricLine(id: "3p-weekly", label: "Claude/GPT · 每週", kind: .weekly, pool: "3p", usedPercent: 47, resetsAt: now.addingTimeInterval(6 * 86400 + 4 * 3600)),
+            ],
+            fetchedAt: now
+        )
+    }
 }
