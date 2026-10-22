@@ -515,6 +515,34 @@ struct SettingsView: View {
                 }
 
                 HStack {
+                    Text("狀態列週期")
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.9))
+                    Spacer()
+                    HStack(spacing: 3) {
+                        ForEach(MenuBarMetricMode.allCases, id: \.self) { mode in
+                            let selected = settings.menuBarMetricMode == mode
+                            Button {
+                                settings.menuBarMetricMode = mode
+                            } label: {
+                                Text(mode.title)
+                                    .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                                    .foregroundStyle(selected ? .white : .white.opacity(0.5))
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 3.5)
+                                    .background(
+                                        Capsule()
+                                            .fill(selected ? Color.white.opacity(0.16) : Color.clear)
+                                    )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(2)
+                    .background(Color.white.opacity(0.06), in: Capsule())
+                }
+
+                HStack {
                     Text("展開面板顯示")
                         .font(.system(size: 11.5, weight: .medium))
                         .foregroundStyle(.white.opacity(0.9))

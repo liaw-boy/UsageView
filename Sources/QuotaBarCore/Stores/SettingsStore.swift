@@ -24,6 +24,19 @@ public enum MultiProviderDisplayMode: String, CaseIterable, Codable, Sendable {
     }
 }
 
+/// Which quota windows are shown in the macOS menu bar item.
+public enum MenuBarMetricMode: String, CaseIterable, Codable, Sendable {
+    case sessionOnly      // 僅 5 小時
+    case sessionAndWeekly // 5 小時 + 7 天
+
+    public var title: String {
+        switch self {
+        case .sessionOnly: "僅 5 小時"
+        case .sessionAndWeekly: "5 小時 + 7 天"
+        }
+    }
+}
+
 @MainActor
 public final class SettingsStore: ObservableObject {
     private let defaults: UserDefaults
@@ -53,6 +66,10 @@ public final class SettingsStore: ObservableObject {
     @Published public var menuBarDisplayMode: MultiProviderDisplayMode {
         didSet { defaults.set(menuBarDisplayMode.rawValue, forKey: "menuBarDisplayMode") }
     }
+    /// 狀態列顯示週期：僅 5 小時 / 5 小時 + 7 天
+    @Published public var menuBarMetricMode: MenuBarMetricMode {
+        didSet { defaults.set(menuBarMetricMode.rawValue, forKey: "menuBarMetricMode") }
+    }
     /// 展開面板多 AI 顯示模式：全部 / 單一（可切換） / 輪播
     @Published public var panelDisplayMode: MultiProviderDisplayMode {
         didSet { defaults.set(panelDisplayMode.rawValue, forKey: "panelDisplayMode") }
@@ -77,6 +94,7 @@ public final class SettingsStore: ObservableObject {
         notificationsEnabled = defaults.object(forKey: "notifications") as? Bool ?? true
 
         menuBarDisplayMode = MultiProviderDisplayMode(rawValue: defaults.string(forKey: "menuBarDisplayMode") ?? "") ?? .all
+        menuBarMetricMode = MenuBarMetricMode(rawValue: defaults.string(forKey: "menuBarMetricMode") ?? "") ?? .sessionAndWeekly
         panelDisplayMode = MultiProviderDisplayMode(rawValue: defaults.string(forKey: "panelDisplayMode") ?? "") ?? .all
         selectedSingleProvider = ProviderID(rawValue: defaults.string(forKey: "selectedSingleProvider") ?? "") ?? .claude
         let cs = defaults.integer(forKey: "carouselSeconds")

@@ -241,6 +241,52 @@ struct DualRingGauge: View {
 
 // MARK: - Menu Bar Strip
 
+/// Compact colored circle gauge for the macOS menu bar.
+/// Uses the provider's brand color directly so the circle color identifies the AI provider at a glance.
+private struct MenuBarCircleGauge: View {
+    let sessionUsed: Double?
+    let weeklyUsed: Double?
+    let showWeekly: Bool
+    let showRemaining: Bool
+    let color: Color
+    var size: CGFloat = 13.5
+
+    private func fraction(for used: Double?) -> Double {
+        guard let used else { return 0 }
+        let value = showRemaining ? max(0, 100 - used) : used
+        return min(max(value / 100, 0.04), 1.0)
+    }
+
+    var body: some View {
+        let outerWidth: CGFloat = showWeekly ? 2.1 : 2.5
+        let innerWidth: CGFloat = 1.7
+        let innerInset: CGFloat = outerWidth + 1.4
+
+        ZStack {
+            Circle()
+                .inset(by: outerWidth / 2)
+                .stroke(color.opacity(0.30), lineWidth: outerWidth)
+            Circle()
+                .inset(by: outerWidth / 2)
+                .trim(from: 0, to: fraction(for: sessionUsed))
+                .stroke(color, style: StrokeStyle(lineWidth: outerWidth, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+
+            if showWeekly {
+                Circle()
+                    .inset(by: innerInset + innerWidth / 2)
+                    .stroke(color.opacity(0.22), lineWidth: innerWidth)
+                Circle()
+                    .inset(by: innerInset + innerWidth / 2)
+                    .trim(from: 0, to: fraction(for: weeklyUsed))
+                    .stroke(color.opacity(0.88), style: StrokeStyle(lineWidth: innerWidth, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+            }
+        }
+        .frame(width: size, height: size)
+    }
+}
+
 struct MenuBarStripView: View {
     @ObservedObject var store: SnapshotStore
     @ObservedObject var settings: SettingsStore
@@ -266,42 +312,81 @@ struct MenuBarStripView: View {
         }
     }
 
+    private func percentString(_ used: Double?) -> String {
+        guard let used else { return "--%" }
+        return Theme.formattedPercent(used, showRemaining: settings.showRemaining)
+    }
+
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 6) {
             if activeItems.isEmpty {
-                HStack(spacing: 4) {
-                    Image(systemName: "waveform.path.ecg")
-                        .font(.system(size: 11, weight: .semibold))
+                HStack(spacing: 3.5) {
+                    MenuBarCircleGauge(
+                        sessionUsed: 0,
+                        weeklyUsed: nil,
+                        showWeekly: false,
+                        showRemaining: true,
+                        color: .white.opacity(0.75),
+                        size: 13
+                    )
+                    Text("--%")
+                        .font(.system(size: 11.5, weight: .semibold, design: .rounded))
                         .foregroundStyle(.white)
-                    if !store.menuBarProviders.isEmpty {
-                        Text("UsageView")
-                            .font(.system(size: 11, weight: .bold, design: .rounded))
-                            .foregroundStyle(.white)
-                    }
+                        .monospacedDigit()
+                        .frame(width: 29, alignment: .trailing)
                 }
-                .padding(.horizontal, 7)
-                .padding(.vertical, 2)
-                .background(Theme.pillBackground, in: Capsule())
-                .overlay(Capsule().strokeBorder(Color.white.opacity(0.16), lineWidth: 0.8))
+                .frame(width: 45.5, height: 18)
             } else {
                 ForEach(activeItems, id: \.0) { id, snap in
-                    HStack(spacing: 4.5) {
-                        ProviderLogoView(provider: id, size: 11.5, tinted: true)
-                        if let p = snap.sessionPercent {
-                            Text(Theme.formattedPercent(p, showRemaining: settings.showRemaining))
-                                .font(.system(size: 11, weight: .bold, design: .rounded))
+                    let color = Theme.brandColor(id)
+                    if settings.menuBarMetricMode == .sessionAndWeekly {
+                        // Two stacked rows (top = 5h, bottom = 7d) next to the colored dual circle,
+                        // matching the compact transparent macOS menu bar style with fixed 43pt width.
+                        HStack(spacing: 3) {
+                            MenuBarCircleGauge(
+                                sessionUsed: snap.sessionPercent,
+                                weeklyUsed: snap.weeklyPercent,
+                                showWeekly: true,
+                                showRemaining: settings.showRemaining,
+                                color: color,
+                                size: 13.5
+                            )
+                            VStack(alignment: .trailing, spacing: -1.5) {
+                                Text(percentString(snap.sessionPercent))
+                                    .font(.system(size: 9.5, weight: .bold, design: .rounded))
+                                    .foregroundStyle(.white)
+                                    .monospacedDigit()
+                                    .frame(width: 26, alignment: .trailing)
+                                Text(percentString(snap.weeklyPercent))
+                                    .font(.system(size: 9.5, weight: .bold, design: .rounded))
+                                    .foregroundStyle(.white.opacity(0.84))
+                                    .monospacedDigit()
+                                    .frame(width: 26, alignment: .trailing)
+                            }
+                        }
+                        .frame(width: 43, height: 19)
+                    } else {
+                        // Single 5h row next to the colored circle with fixed 45.5pt width.
+                        HStack(spacing: 3.5) {
+                            MenuBarCircleGauge(
+                                sessionUsed: snap.sessionPercent,
+                                weeklyUsed: nil,
+                                showWeekly: false,
+                                showRemaining: settings.showRemaining,
+                                color: color,
+                                size: 13
+                            )
+                            Text(percentString(snap.sessionPercent))
+                                .font(.system(size: 11.5, weight: .semibold, design: .rounded))
                                 .foregroundStyle(.white)
                                 .monospacedDigit()
+                                .frame(width: 29, alignment: .trailing)
                         }
+                        .frame(width: 45.5, height: 18)
                     }
-                    .padding(.horizontal, 6.5)
-                    .padding(.vertical, 2)
-                    .background(Theme.pillBackground, in: Capsule())
-                    .overlay(Capsule().strokeBorder(Color.white.opacity(0.16), lineWidth: 0.8))
                 }
             }
         }
-        .padding(.horizontal, 2)
         .environment(\.colorScheme, .dark)
     }
 }

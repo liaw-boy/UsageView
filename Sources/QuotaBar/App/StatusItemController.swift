@@ -37,16 +37,11 @@ final class StatusItemController: NSObject, ObservableObject {
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
 
-        Publishers.CombineLatest4(
-            store.$states,
-            store.$carouselTick,
-            settings.$trackedProviders,
-            settings.$menuBarProviders
-        )
-        .combineLatest(settings.$menuBarDisplayMode, settings.$selectedSingleProvider, settings.$showRemaining)
-        .receive(on: RunLoop.main)
-        .sink { [weak self] _ in self?.updateStrip() }
-        .store(in: &cancellables)
+        store.objectWillChange
+            .merge(with: settings.objectWillChange)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.updateStrip() }
+            .store(in: &cancellables)
 
         // Also wake-refresh when the Mac wakes from sleep.
         NSWorkspace.shared.notificationCenter.addObserver(
@@ -69,9 +64,13 @@ final class StatusItemController: NSObject, ObservableObject {
             image.isTemplate = false
             button.image = image
             button.title = ""
+            // Lock exact status item length with minimal 3pt margin per side so
+            // carousel rotation or digit count changes never resize the button.
+            statusItem.length = image.size.width + 6
         } else {
             button.image = nil
             button.title = "◎ UsageView"
+            statusItem.length = NSStatusItem.variableLength
         }
     }
 
