@@ -48,15 +48,23 @@ public struct MetricLine: Codable, Sendable, Identifiable, Equatable {
         self.periodSeconds = periodSeconds ?? (kind == .session ? 5 * 3600 : 7 * 86400)
     }
 
-    /// A rolling window with no usage and no reset scheduled yet.
-    public var isNotStarted: Bool { usedPercent == 0 && resetsAt == nil && kind == .session }
+    /// Remaining quota percentage (0...100).
+    public var remainingPercent: Double {
+        max(0, 100.0 - usedPercent)
+    }
+
+    /// A rolling window with no usage yet (for Antigravity 5H pools, 0% used means "Quota available").
+    public var isNotStarted: Bool {
+        guard usedPercent == 0, kind == .session else { return false }
+        return resetsAt == nil || pool != nil
+    }
 
     public var pace: Pace? { Pace.evaluate(usedPercent: usedPercent, resetsAt: resetsAt, periodSeconds: periodSeconds) }
 
     /// Fraction (0...1) of the current window's time period that has already elapsed.
-    /// Used to draw the "even-pace time tick" on the progress bar.
+    /// Used to draw the "even-pace time tick" on the progress bar when `usedPercent > 0`.
     public func timeElapsedFraction(now: Date = Date()) -> Double? {
-        guard let resetsAt, periodSeconds > 0 else { return nil }
+        guard let resetsAt, usedPercent > 0, periodSeconds > 0 else { return nil }
         let remaining = resetsAt.timeIntervalSince(now)
         let elapsed = 1.0 - (remaining / periodSeconds)
         guard elapsed >= 0.02, elapsed <= 0.99 else { return nil }

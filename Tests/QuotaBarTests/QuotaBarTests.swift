@@ -118,10 +118,10 @@ final class QuotaBarTests: XCTestCase {
         XCTAssertEqual(lines.count, 5)
         XCTAssertTrue(lines[0].isNotStarted)
         XCTAssertEqual(lines[1].usedPercent, 25, accuracy: 0.01) // 0.75 from host2 beats 1.0 from host1
-        XCTAssertEqual(lines[2].id, "argon-weekly")
-        XCTAssertEqual(lines[2].usedPercent, 50, accuracy: 0.01)
-        XCTAssertEqual(lines[3].usedPercent, 40, accuracy: 0.01)
-        XCTAssertEqual(lines[4].usedPercent, 20, accuracy: 0.01)
+        XCTAssertEqual(lines[2].usedPercent, 40, accuracy: 0.01)
+        XCTAssertEqual(lines[3].usedPercent, 20, accuracy: 0.01)
+        XCTAssertEqual(lines[4].id, "argon-weekly")
+        XCTAssertEqual(lines[4].usedPercent, 50, accuracy: 0.01)
 
         // Verify Antigravity's headline sessionPercent & weeklyPercent always use Gemini pool, not Claude/GPT (3p)
         let snap = ProviderSnapshot(provider: .antigravity, lines: lines)

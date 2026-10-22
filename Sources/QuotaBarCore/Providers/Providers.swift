@@ -407,17 +407,23 @@ enum AntigravityMapper {
                 let groupBuckets = group["buckets"] as? [[String: Any]] ?? []
 
                 if groupName == argonGroupName {
-                    if argonLine == nil,
-                       let weekly = groupBuckets.first(where: { ($0["window"] as? String) == "weekly" && ($0["disabled"] as? Bool) != true }),
+                    if let weekly = groupBuckets.first(where: { ($0["window"] as? String) == "weekly" && ($0["disabled"] as? Bool) != true }),
                        let remaining = Parse.number(weekly["remainingFraction"]), remaining.isFinite {
-                        argonLine = MetricLine(
+                        let candidate = MetricLine(
                             id: "argon-weekly",
-                            label: "Gemini 4 Argon · 7D",
+                            label: "Argon · 7D",
                             kind: .weekly,
-                            pool: "gemini",
+                            pool: "argon",
                             usedPercent: (1 - remaining) * 100,
                             resetsAt: Parse.date(weekly["resetTime"])
                         )
+                        if let existing = argonLine {
+                            if existing.usedPercent == 0, candidate.usedPercent > 0 {
+                                argonLine = candidate
+                            }
+                        } else {
+                            argonLine = candidate
+                        }
                     }
                     continue
                 }
@@ -437,7 +443,7 @@ enum AntigravityMapper {
                         resetsAt: Parse.date(bucket["resetTime"])
                     )
                     if let existing = found[id] {
-                        if candidate.usedPercent > existing.usedPercent {
+                        if existing.usedPercent == 0, candidate.usedPercent > 0 {
                             found[id] = candidate
                         }
                     } else {
@@ -449,8 +455,7 @@ enum AntigravityMapper {
 
         var lines = buckets.compactMap { found[$0.id] }
         if let argonLine {
-            let insertIdx = lines.firstIndex(where: { $0.pool == "3p" }) ?? lines.endIndex
-            lines.insert(argonLine, at: insertIdx)
+            lines.append(argonLine)
         }
         return lines
     }
@@ -464,7 +469,7 @@ struct AntigravityRuntime: ProviderRuntime {
     // Query both daily-cloudcode-pa (used by agy CLI) and cloudcode-pa (used by Antigravity IDE)
     // and merge by keeping the active (most-used) fraction for each bucket.
     static let hosts = ["https://daily-cloudcode-pa.googleapis.com", "https://cloudcode-pa.googleapis.com"]
-    static let userAgent = "antigravity/2.24.0 (aidev_client; os_type=darwin; arch=arm64)"
+    static let userAgent = "antigravity/2.24.0 (aidev_client; os_type=darwin; arch=arm64; cl=1004422050)"
 
     func fetch() async throws -> [MetricLine] {
         try await fetchResult().lines

@@ -620,13 +620,18 @@ private struct MetricBarRow: View {
     let showDetail: Bool
 
     private var color: Color {
-        Theme.ringColor(for: provider, usedPercent: line.usedPercent, secondaryPool: line.pool == "3p")
+        if line.pool == "argon" && line.usedPercent < 80 {
+            return Color(red: 0.95, green: 0.72, blue: 0.28)
+        }
+        return Theme.ringColor(for: provider, usedPercent: line.usedPercent, secondaryPool: line.pool == "3p")
     }
 
     var body: some View {
         GeometryReader { geo in
-            let fillWidth = max(4, geo.size.width * CGFloat(line.usedPercent / 100))
+            let barFraction = showRemaining ? (line.remainingPercent / 100.0) : (line.usedPercent / 100.0)
+            let fillWidth = max(barFraction > 0.005 ? 4 : 0, geo.size.width * CGFloat(barFraction))
             let elapsedFraction = line.timeElapsedFraction()
+            let tickFraction = elapsedFraction.map { showRemaining ? (1.0 - $0) : $0 }
             let projection = line.projectionText()
 
             ZStack(alignment: .leading) {
@@ -636,11 +641,11 @@ private struct MetricBarRow: View {
                     .fill(color.opacity(0.35))
                     .frame(width: fillWidth)
 
-                // Feature 1: Even-pace time tick mark showing where current time sits in the window
-                if let elapsed = elapsedFraction {
-                    let tickX = min(max(3, geo.size.width * CGFloat(elapsed)), geo.size.width - 3)
+                // Feature 1: Even-pace time tick mark matching the current display direction (Remaining vs Used)
+                if let tick = tickFraction {
+                    let tickX = min(max(3, geo.size.width * CGFloat(tick)), geo.size.width - 3)
                     RoundedRectangle(cornerRadius: 1)
-                        .fill(Color.white.opacity(0.72))
+                        .fill(Color.white.opacity(0.75))
                         .frame(width: 1.5, height: 15)
                         .shadow(color: .black.opacity(0.6), radius: 1, x: 0, y: 0)
                         .offset(x: tickX - 0.75)
@@ -677,10 +682,12 @@ private struct MetricBarRow: View {
             }
         }
         .frame(height: 19)
+        .help(tooltipText)
     }
 
     private var displayLabel: String {
         line.label
+            .replacingOccurrences(of: "Gemini 4 Argon", with: "Argon")
             .replacingOccurrences(of: "5 小時", with: "5H")
             .replacingOccurrences(of: "5h", with: "5H")
             .replacingOccurrences(of: "每週 · ", with: "")
@@ -689,18 +696,24 @@ private struct MetricBarRow: View {
 
     private var trailingText: String {
         let pct = Theme.formattedPercent(line.usedPercent, showRemaining: showRemaining)
-        if line.isNotStarted { return "\(pct) · Not started" }
+        if line.isNotStarted { return "\(pct) · 可用" }
         guard let reset = line.resetsAt else { return pct }
-        if showDetail {
-            let f = DateFormatter()
-            f.dateFormat = "E HH:mm"
-            return "\(pct) · 重設 \(f.string(from: reset))"
-        }
         let secs = max(0, Int(reset.timeIntervalSinceNow))
         let h = secs / 3600
         let m = (secs % 3600) / 60
         let rel = h >= 24 ? "\(h / 24)d \(h % 24)h" : (h > 0 ? "\(h)h \(m)m" : "\(m)m")
         return "\(pct) · \(rel)"
+    }
+
+    private var tooltipText: String {
+        let exactRemain = String(format: "%.2f%%", line.remainingPercent)
+        let exactUsed = String(format: "%.2f%%", line.usedPercent)
+        guard let reset = line.resetsAt, !line.isNotStarted else {
+            return "\(displayLabel)：剩餘 \(exactRemain)（已用 \(exactUsed)）· 隨時可用"
+        }
+        let f = DateFormatter()
+        f.dateFormat = "MM/dd (E) HH:mm"
+        return "\(displayLabel)：剩餘 \(exactRemain)（已用 \(exactUsed)）· 重設時間 \(f.string(from: reset))"
     }
 }
 

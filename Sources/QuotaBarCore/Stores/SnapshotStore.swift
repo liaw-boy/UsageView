@@ -248,12 +248,13 @@ public final class SnapshotStore: ObservableObject {
             provider: .antigravity,
             lines: [
                 MetricLine(id: "gemini-5h", label: "Gemini · 5H", kind: .session, pool: "gemini", usedPercent: 18, resetsAt: now.addingTimeInterval(42 * 60)),
-                MetricLine(id: "gemini-weekly", label: "Gemini · 7D", kind: .weekly, pool: "gemini", usedPercent: 84, resetsAt: now.addingTimeInterval(6 * 86400 + 4 * 3600)),
+                MetricLine(id: "gemini-weekly", label: "Gemini · 7D", kind: .weekly, pool: "gemini", usedPercent: 14, resetsAt: now.addingTimeInterval(6 * 86400 + 4 * 3600)),
                 MetricLine(id: "3p-5h", label: "Claude/GPT · 5H", kind: .session, pool: "3p", usedPercent: 32, resetsAt: now.addingTimeInterval(2 * 3600 + 15 * 60)),
                 MetricLine(id: "3p-weekly", label: "Claude/GPT · 7D", kind: .weekly, pool: "3p", usedPercent: 47, resetsAt: now.addingTimeInterval(6 * 86400 + 4 * 3600)),
+                MetricLine(id: "argon-weekly", label: "Argon · 7D", kind: .weekly, pool: "argon", usedPercent: 77, resetsAt: now.addingTimeInterval(6 * 86400 + 19 * 3600)),
             ],
             fetchedAt: now,
-            planName: "Ultra",
+            planName: "Pro",
             localSpend: LocalSpendSummary(todayCostUSD: 24.60, todayTokens: 4_850_000, monthCostUSD: 412.90, monthTokens: 82_300_000)
         )
     }
