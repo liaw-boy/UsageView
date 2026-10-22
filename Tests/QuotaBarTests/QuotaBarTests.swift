@@ -86,30 +86,42 @@ final class QuotaBarTests: XCTestCase {
     }
 
     func testAntigravityMapperMergesHostsAndDetectsNotStarted() {
-        // Host 1 returns only Gemini; Host 2 returns Claude/GPT (3p). First usable bucket wins.
+        // Host 1 (e.g. cloudcode-pa) has untouched Gemini (1.0) and 3p buckets;
+        // Host 2 (e.g. daily-cloudcode-pa) has real Gemini usage + optional Gemini 4 Argon group.
+        // Higher usedPercent (lower remainingFraction) wins across hosts.
         let host1: [String: Any] = [
             "groups": [[
                 "buckets": [
                     ["bucketId": "gemini-5h", "remainingFraction": 1.0], // no resetTime -> Not started
-                    ["bucketId": "gemini-weekly", "remainingFraction": 0.75, "resetTime": "2026-10-28T00:00:00Z"],
+                    ["bucketId": "gemini-weekly", "remainingFraction": 1.0],
+                    ["bucketId": "3p-5h", "remainingFraction": 0.60, "resetTime": "2026-10-22T09:00:00Z"],
+                    ["bucketId": "3p-weekly", "remainingFraction": 0.80, "resetTime": "2026-10-28T00:00:00Z"],
                 ]
             ]]
         ]
         let host2: [String: Any] = [
-            "response": ["groups": [[
-                "buckets": [
-                    ["bucketId": "gemini-weekly", "remainingFraction": 0.10], // duplicate, ignored
-                    ["bucketId": "3p-5h", "remainingFraction": 0.60, "resetTime": "2026-10-22T09:00:00Z"],
-                    ["bucketId": "3p-weekly", "remainingFraction": 0.80, "resetTime": "2026-10-28T00:00:00Z"],
+            "response": ["groups": [
+                [
+                    "buckets": [
+                        ["bucketId": "gemini-weekly", "remainingFraction": 0.75, "resetTime": "2026-10-28T00:00:00Z"],
+                    ]
+                ],
+                [
+                    "displayName": "Gemini 4 Argon",
+                    "buckets": [
+                        ["window": "weekly", "remainingFraction": 0.50, "resetTime": "2026-10-28T00:00:00Z"],
+                    ]
                 ]
-            ]]]
+            ]]
         ]
         let lines = AntigravityMapper.map([host1, host2])
-        XCTAssertEqual(lines.count, 4)
+        XCTAssertEqual(lines.count, 5)
         XCTAssertTrue(lines[0].isNotStarted)
-        XCTAssertEqual(lines[1].usedPercent, 25, accuracy: 0.01)
-        XCTAssertEqual(lines[2].usedPercent, 40, accuracy: 0.01)
-        XCTAssertEqual(lines[3].usedPercent, 20, accuracy: 0.01)
+        XCTAssertEqual(lines[1].usedPercent, 25, accuracy: 0.01) // 0.75 from host2 beats 1.0 from host1
+        XCTAssertEqual(lines[2].id, "argon-weekly")
+        XCTAssertEqual(lines[2].usedPercent, 50, accuracy: 0.01)
+        XCTAssertEqual(lines[3].usedPercent, 40, accuracy: 0.01)
+        XCTAssertEqual(lines[4].usedPercent, 20, accuracy: 0.01)
     }
 
     // MARK: - 3. Store: Stale-While-Revalidate & 429 Backoff

@@ -7,7 +7,6 @@ struct DashboardView: View {
     @ObservedObject var settings: SettingsStore
     @ObservedObject var updater: UpdateService
     @ObservedObject var controller: StatusItemController
-    @State private var isHoveringCard = false
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 15)) { _ in
@@ -27,7 +26,7 @@ struct DashboardView: View {
             .padding(.vertical, 10)
             .frame(width: 356)
             .fixedSize(horizontal: false, vertical: true)
-            .background(PanelBackdrop())
+            .background(Theme.panelBackground)
             .environment(\.colorScheme, .dark)
         }
     }
@@ -38,7 +37,7 @@ struct DashboardView: View {
         HStack(alignment: .center, spacing: 6) {
             Image(systemName: "waveform.path.ecg")
                 .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(Color(red: 0.54, green: 0.64, blue: 1.0))
+                .foregroundStyle(.white.opacity(0.85))
 
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 5) {
@@ -50,11 +49,11 @@ struct DashboardView: View {
                         .foregroundStyle(.white.opacity(0.55))
                         .padding(.horizontal, 5)
                         .padding(.vertical, 1)
-                        .background(Color.white.opacity(0.09), in: Capsule())
+                        .background(Color.white.opacity(0.08), in: Capsule())
                 }
                 Text(updatedSubtitle)
                     .font(.system(size: 10.5))
-                    .foregroundStyle(.white.opacity(0.56))
+                    .foregroundStyle(.white.opacity(0.54))
             }
 
             Spacer()
@@ -64,11 +63,11 @@ struct DashboardView: View {
             } label: {
                 Text(settings.showRemaining ? "剩餘 %" : "已用 %")
                     .font(.system(size: 10.5, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.92))
+                    .foregroundStyle(.white.opacity(0.90))
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3.5)
-                    .background(Color.white.opacity(0.11), in: Capsule())
-                    .overlay(Capsule().strokeBorder(Color.white.opacity(0.16), lineWidth: 0.8))
+                    .background(Theme.cardBackground, in: Capsule())
+                    .overlay(Capsule().strokeBorder(Theme.cardBorder, lineWidth: 1))
             }
             .buttonStyle(.plain)
             .help("點擊切換「已用 %」與「剩餘 %」")
@@ -78,15 +77,15 @@ struct DashboardView: View {
             } label: {
                 Image(systemName: "arrow.clockwise")
                     .font(.system(size: 11.5, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.92))
+                    .foregroundStyle(.white.opacity(0.90))
                     .rotationEffect(.degrees(store.isRefreshing ? 360 : 0))
                     .animation(
                         store.isRefreshing ? .linear(duration: 0.9).repeatForever(autoreverses: false) : .default,
                         value: store.isRefreshing
                     )
                     .frame(width: 24, height: 24)
-                    .background(Color.white.opacity(0.11), in: Circle())
-                    .overlay(Circle().strokeBorder(Color.white.opacity(0.16), lineWidth: 0.8))
+                    .background(Theme.cardBackground, in: Circle())
+                    .overlay(Circle().strokeBorder(Theme.cardBorder, lineWidth: 1))
             }
             .buttonStyle(.plain)
             .help("立即重新整理")
@@ -105,7 +104,6 @@ struct DashboardView: View {
 
     private var panelModeToolbar: some View {
         HStack(spacing: 6) {
-            // Mode pills: 全部 / 單一 / 輪播
             HStack(spacing: 3) {
                 ForEach(MultiProviderDisplayMode.allCases, id: \.self) { mode in
                     let active = settings.panelDisplayMode == mode
@@ -124,23 +122,22 @@ struct DashboardView: View {
                         .padding(.horizontal, 7)
                         .padding(.vertical, 3)
                         .background(
-                            Capsule().fill(active ? Color(red: 0.44, green: 0.42, blue: 0.96) : Color.clear)
+                            Capsule().fill(active ? Color.white.opacity(0.18) : Color.clear)
                         )
                     }
                     .buttonStyle(.plain)
                 }
             }
             .padding(2)
-            .background(Color.white.opacity(0.08), in: Capsule())
+            .background(Theme.cardBackground, in: Capsule())
+            .overlay(Capsule().strokeBorder(Theme.cardBorder, lineWidth: 1))
 
             Spacer()
 
-            // When in Single or Carousel mode, show quick provider selector pills on the right
             if settings.panelDisplayMode != .all {
                 HStack(spacing: 4) {
                     ForEach(store.panelProviders) { id in
                         let isCurrent = activeSingleProvider == id
-                        let accent = Theme.brandColor(id)
                         Button {
                             withAnimation(.easeInOut(duration: 0.16)) {
                                 settings.selectedSingleProvider = id
@@ -149,8 +146,8 @@ struct DashboardView: View {
                                 }
                             }
                         } label: {
-                            HStack(spacing: 3.5) {
-                                Circle().fill(accent).frame(width: 6, height: 6)
+                            HStack(spacing: 4) {
+                                ProviderLogoView(provider: id, size: 11, tinted: true)
                                 Text(id.shortName)
                                     .font(.system(size: 10.5, weight: .bold, design: .rounded))
                             }
@@ -158,10 +155,10 @@ struct DashboardView: View {
                             .padding(.horizontal, 7)
                             .padding(.vertical, 3)
                             .background(
-                                Capsule().fill(isCurrent ? accent.opacity(0.32) : Color.white.opacity(0.06))
+                                Capsule().fill(isCurrent ? Color.white.opacity(0.16) : Theme.cardBackground)
                             )
                             .overlay(
-                                Capsule().strokeBorder(isCurrent ? accent.opacity(0.85) : Color.white.opacity(0.10), lineWidth: 0.8)
+                                Capsule().strokeBorder(isCurrent ? Color.white.opacity(0.32) : Theme.cardBorder, lineWidth: 1)
                             )
                         }
                         .buttonStyle(.plain)
@@ -202,16 +199,17 @@ struct DashboardView: View {
                 }
                 .buttonStyle(.plain)
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(Color(red: 0.52, green: 0.65, blue: 1.0))
+                .foregroundStyle(.white)
                 .padding(.horizontal, 9)
                 .padding(.vertical, 4)
-                .background(Color.white.opacity(0.10), in: Capsule())
+                .background(Color.white.opacity(0.12), in: Capsule())
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 18)
             .background(
                 RoundedRectangle(cornerRadius: 11, style: .continuous)
-                    .fill(Color(red: 0.14, green: 0.16, blue: 0.23).opacity(0.92))
+                    .fill(Theme.cardBackground)
+                    .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).strokeBorder(Theme.cardBorder, lineWidth: 1))
             )
         } else if settings.panelDisplayMode == .all || visible.count == 1 {
             VStack(spacing: 7) {
@@ -255,7 +253,8 @@ struct DashboardView: View {
                 .foregroundStyle(.white.opacity(0.85))
                 .padding(.horizontal, 9)
                 .padding(.vertical, 4)
-                .background(Color.white.opacity(0.10), in: Capsule())
+                .background(Theme.cardBackground, in: Capsule())
+                .overlay(Capsule().strokeBorder(Theme.cardBorder, lineWidth: 1))
             }
             .buttonStyle(.plain)
 
@@ -271,7 +270,7 @@ struct DashboardView: View {
     }
 }
 
-// MARK: - Provider Card (Maximized Vertical Density)
+// MARK: - Provider Card (Native Neutral Dark Surface + Provider Logo)
 
 struct ProviderCardView: View {
     let provider: ProviderID
@@ -294,10 +293,8 @@ struct ProviderCardView: View {
                 .onTapGesture(perform: onToggleMode)
 
             VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 5) {
-                    Circle()
-                        .fill(Theme.brandColor(provider))
-                        .frame(width: 6.5, height: 6.5)
+                HStack(spacing: 6) {
+                    ProviderLogoView(provider: provider, size: 13.5, tinted: true)
                     Text(provider.displayName)
                         .font(.system(size: 13, weight: .bold, design: .rounded))
                         .foregroundStyle(.white)
@@ -346,10 +343,10 @@ struct ProviderCardView: View {
         .padding(.vertical, 8.5)
         .background(
             RoundedRectangle(cornerRadius: 11, style: .continuous)
-                .fill(Color(red: 0.14, green: 0.16, blue: 0.23).opacity(0.94))
+                .fill(Theme.cardBackground)
                 .overlay(
                     RoundedRectangle(cornerRadius: 11, style: .continuous)
-                        .strokeBorder(Theme.brandColor(provider).opacity(isHovered ? 0.55 : 0.24), lineWidth: 1)
+                        .strokeBorder(isHovered ? Theme.cardHoverBorder : Theme.cardBorder, lineWidth: 1)
                 )
         )
         .onHover { hovering in
@@ -373,9 +370,9 @@ private struct MetricBarRow: View {
             let fillWidth = max(4, geo.size.width * CGFloat(line.usedPercent / 100))
             ZStack(alignment: .leading) {
                 RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .fill(Color.white.opacity(0.08))
+                    .fill(Color.white.opacity(0.06))
                 RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .fill(color.opacity(0.38))
+                    .fill(color.opacity(0.35))
                     .frame(width: fillWidth)
 
                 HStack(spacing: 4) {
@@ -386,7 +383,7 @@ private struct MetricBarRow: View {
                     Text(trailingText)
                         .font(.system(size: 10, weight: .semibold, design: .rounded))
                         .monospacedDigit()
-                        .foregroundStyle(.white.opacity(0.80))
+                        .foregroundStyle(.white.opacity(0.78))
                 }
                 .padding(.horizontal, 7)
             }
@@ -436,11 +433,11 @@ private struct PaceChip: View {
             .foregroundStyle(tint)
             .padding(.horizontal, 6)
             .padding(.vertical, 1.5)
-            .background(tint.opacity(0.20), in: Capsule())
+            .background(tint.opacity(0.18), in: Capsule())
     }
 }
 
-// MARK: - Redesigned Compact Settings View
+// MARK: - Settings View (Native Neutral Dark Surface + Provider Logos)
 
 struct SettingsView: View {
     @ObservedObject var settings: SettingsStore
@@ -456,7 +453,6 @@ struct SettingsView: View {
         }
     }
 
-    // 1. 三層獨立控制矩陣：啟動追蹤 / 面板顯示 / 狀態列顯示
     private var providerMatrixCard: some View {
         SettingsCard(title: "服務追蹤與顯示位置", icon: "square.stack.3d.up.fill") {
             VStack(spacing: 6) {
@@ -466,11 +462,9 @@ struct SettingsView: View {
                     let inBar = settings.isShownInMenuBar(id)
                     let accent = Theme.brandColor(id)
 
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(accent)
-                            .frame(width: 7, height: 7)
-                            .opacity(tracked ? 1.0 : 0.35)
+                    HStack(spacing: 7) {
+                        ProviderLogoView(provider: id, size: 14, tinted: tracked)
+                            .opacity(tracked ? 1.0 : 0.38)
                         Text(id.displayName)
                             .font(.system(size: 12, weight: .semibold, design: .rounded))
                             .foregroundStyle(.white.opacity(tracked ? 0.95 : 0.45))
@@ -509,7 +503,6 @@ struct SettingsView: View {
         }
     }
 
-    // 2. 多 AI 顯示模式（單一 / 輪播 / 全部）
     private var displayModeCard: some View {
         SettingsCard(title: "多 AI 顯示與輪播設定", icon: "arrow.triangle.2.circlepath") {
             VStack(alignment: .leading, spacing: 7) {
@@ -541,14 +534,17 @@ struct SettingsView: View {
                                 Button {
                                     settings.selectedSingleProvider = id
                                 } label: {
-                                    Text(id.displayName)
-                                        .font(.system(size: 10.5, weight: .semibold, design: .rounded))
-                                        .foregroundStyle(sel ? .white : .white.opacity(0.55))
-                                        .padding(.horizontal, 7)
-                                        .padding(.vertical, 3)
-                                        .background(
-                                            Capsule().fill(sel ? Theme.brandColor(id).opacity(0.38) : Color.white.opacity(0.07))
-                                        )
+                                    HStack(spacing: 4) {
+                                        ProviderLogoView(provider: id, size: 10.5, tinted: true)
+                                        Text(id.displayName)
+                                            .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                                    }
+                                    .foregroundStyle(sel ? .white : .white.opacity(0.55))
+                                    .padding(.horizontal, 7)
+                                    .padding(.vertical, 3)
+                                    .background(
+                                        Capsule().fill(sel ? Color.white.opacity(0.16) : Color.white.opacity(0.06))
+                                    )
                                 }
                                 .buttonStyle(.plain)
                             }
@@ -559,7 +555,6 @@ struct SettingsView: View {
         }
     }
 
-    // 3. 更新頻率與提醒設定
     private var scheduleAndAlertsCard: some View {
         SettingsCard(title: "自動更新頻率與提醒", icon: "bell.badge.fill") {
             VStack(alignment: .leading, spacing: 7) {
@@ -581,7 +576,7 @@ struct SettingsView: View {
                                     .foregroundStyle(selected ? .white : .white.opacity(0.58))
                                     .background(
                                         RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                            .fill(selected ? Color(red: 0.44, green: 0.42, blue: 0.96) : Color.white.opacity(0.08))
+                                            .fill(selected ? Color.white.opacity(0.20) : Color.white.opacity(0.06))
                                     )
                             }
                             .buttonStyle(.plain)
@@ -589,7 +584,7 @@ struct SettingsView: View {
                     }
                 }
 
-                Divider().overlay(Color.white.opacity(0.10))
+                Divider().overlay(Color.white.opacity(0.08))
 
                 SettingsToggleRow(
                     title: "用量超過 80% / 95% 時發送通知",
@@ -609,7 +604,6 @@ struct SettingsView: View {
         }
     }
 
-    // 4. GitHub 自動檢查與更新
     private var updateCard: some View {
         SettingsCard(title: "版本與 GitHub 更新", icon: "arrow.triangle.2.circlepath.circle.fill") {
             HStack(alignment: .center) {
@@ -655,8 +649,8 @@ struct SettingsView: View {
                         .foregroundStyle(.white.opacity(0.9))
                         .padding(.horizontal, 9)
                         .padding(.vertical, 4.5)
-                        .background(Color.white.opacity(0.12), in: Capsule())
-                        .overlay(Capsule().strokeBorder(Color.white.opacity(0.18), lineWidth: 0.8))
+                        .background(Color.white.opacity(0.10), in: Capsule())
+                        .overlay(Capsule().strokeBorder(Theme.cardBorder, lineWidth: 1))
                     }
                     .buttonStyle(.plain)
                     .disabled(updater.status == .checking)
@@ -707,14 +701,14 @@ private struct ModeSegmentedPicker: View {
                     .padding(.horizontal, 7)
                     .padding(.vertical, 3)
                     .background(
-                        Capsule().fill(active ? Color(red: 0.44, green: 0.42, blue: 0.96) : Color.clear)
+                        Capsule().fill(active ? Color.white.opacity(0.20) : Color.clear)
                     )
                 }
                 .buttonStyle(.plain)
             }
         }
         .padding(2)
-        .background(Color.white.opacity(0.08), in: Capsule())
+        .background(Color.white.opacity(0.06), in: Capsule())
     }
 }
 
@@ -728,7 +722,7 @@ private struct SettingsCard<Content: View>: View {
             HStack(spacing: 5) {
                 Image(systemName: icon)
                     .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Color(red: 0.56, green: 0.64, blue: 1.0))
+                    .foregroundStyle(.white.opacity(0.75))
                 Text(title)
                     .font(.system(size: 11.5, weight: .bold, design: .rounded))
                     .foregroundStyle(.white.opacity(0.92))
@@ -739,10 +733,10 @@ private struct SettingsCard<Content: View>: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 11, style: .continuous)
-                .fill(Color(red: 0.14, green: 0.16, blue: 0.23).opacity(0.94))
+                .fill(Theme.cardBackground)
                 .overlay(
                     RoundedRectangle(cornerRadius: 11, style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+                        .strokeBorder(Theme.cardBorder, lineWidth: 1)
                 )
         )
     }
@@ -768,11 +762,11 @@ private struct PillToggleButton: View {
             .padding(.vertical, 3.5)
             .background(
                 Capsule()
-                    .fill(isOn ? accent.opacity(0.32) : Color.white.opacity(0.06))
+                    .fill(isOn ? accent.opacity(0.28) : Color.white.opacity(0.05))
             )
             .overlay(
                 Capsule()
-                    .strokeBorder(isOn ? accent.opacity(0.85) : Color.white.opacity(0.10), lineWidth: 0.9)
+                    .strokeBorder(isOn ? accent.opacity(0.78) : Color.white.opacity(0.10), lineWidth: 0.9)
             )
         }
         .buttonStyle(.plain)
@@ -800,20 +794,5 @@ private struct SettingsToggleRow: View {
                 .toggleStyle(.switch)
                 .controlSize(.mini)
         }
-    }
-}
-
-// MARK: - Rich Opaque Navy-Indigo Backdrop
-
-struct PanelBackdrop: View {
-    var body: some View {
-        LinearGradient(
-            colors: [
-                Color(red: 0.08, green: 0.09, blue: 0.14).opacity(0.98),
-                Color(red: 0.11, green: 0.10, blue: 0.19).opacity(0.98),
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
     }
 }

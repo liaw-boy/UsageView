@@ -203,6 +203,7 @@ private final class InMemoryTokenCache: @unchecked Sendable {
 }
 
 enum AntigravityMapper {
+    static let argonGroupName = "Gemini 4 Argon"
     static let buckets: [(id: String, label: String, kind: WindowKind, pool: String)] = [
         ("gemini-5h", "Gemini · 5 小時", .session, "gemini"),
         ("gemini-weekly", "Gemini · 每週", .weekly, "gemini"),
@@ -210,21 +211,71 @@ enum AntigravityMapper {
         ("3p-weekly", "Claude/GPT · 每週", .weekly, "3p"),
     ]
 
-    /// Merge summary bodies by exact bucket id; first usable bucket wins.
+    /// Merges summary bodies across both Cloud Code hosts (`daily-cloudcode-pa` and `cloudcode-pa`):
+    /// - `agy` CLI deducts Gemini (including Gemini 4 Argon on Ultra) on `daily-cloudcode-pa`, while
+    ///   `cloudcode-pa` may report `remainingFraction: 1.0` (untouched). Therefore, when both hosts report
+    ///   the same bucket ID, we keep the one with higher usage (`usedPercent`) so active usage on either
+    ///   host is never masked by an untouched `1.0` on the other host.
+    /// - If the account has a separate `"Gemini 4 Argon"` group (Pro / trial accounts), it is surfaced as
+    ///   its own `Gemini 4 Argon · 每週` meter. On Ultra accounts, Gemini 4 Argon shares the `gemini-5h`
+    ///   and `gemini-weekly` pool.
     static func map(_ bodies: [[String: Any]]) -> [MetricLine] {
         var found: [String: MetricLine] = [:]
+        var argonLine: MetricLine?
+
         for body in bodies {
             let groups = (body["groups"] ?? (body["response"] as? [String: Any])?["groups"]) as? [[String: Any]] ?? []
-            for bucket in groups.flatMap({ $0["buckets"] as? [[String: Any]] ?? [] }) {
-                guard let id = bucket["bucketId"] as? String, found[id] == nil,
-                      let spec = buckets.first(where: { $0.id == id }),
-                      let remaining = Parse.number(bucket["remainingFraction"]), remaining.isFinite
-                else { continue }
-                found[id] = MetricLine(id: id, label: spec.label, kind: spec.kind, pool: spec.pool,
-                                       usedPercent: (1 - remaining) * 100, resetsAt: Parse.date(bucket["resetTime"]))
+            for group in groups {
+                let groupName = group["displayName"] as? String
+                let groupBuckets = group["buckets"] as? [[String: Any]] ?? []
+
+                if groupName == argonGroupName {
+                    if argonLine == nil,
+                       let weekly = groupBuckets.first(where: { ($0["window"] as? String) == "weekly" && ($0["disabled"] as? Bool) != true }),
+                       let remaining = Parse.number(weekly["remainingFraction"]), remaining.isFinite {
+                        argonLine = MetricLine(
+                            id: "argon-weekly",
+                            label: "Gemini 4 Argon · 每週",
+                            kind: .weekly,
+                            pool: "gemini",
+                            usedPercent: (1 - remaining) * 100,
+                            resetsAt: Parse.date(weekly["resetTime"])
+                        )
+                    }
+                    continue
+                }
+
+                for bucket in groupBuckets {
+                    guard let id = bucket["bucketId"] as? String,
+                          let spec = buckets.first(where: { $0.id == id }),
+                          let remaining = Parse.number(bucket["remainingFraction"]), remaining.isFinite
+                    else { continue }
+                    let used = (1 - remaining) * 100
+                    let candidate = MetricLine(
+                        id: id,
+                        label: spec.label,
+                        kind: spec.kind,
+                        pool: spec.pool,
+                        usedPercent: used,
+                        resetsAt: Parse.date(bucket["resetTime"])
+                    )
+                    if let existing = found[id] {
+                        if candidate.usedPercent > existing.usedPercent {
+                            found[id] = candidate
+                        }
+                    } else {
+                        found[id] = candidate
+                    }
+                }
             }
         }
-        return buckets.compactMap { found[$0.id] }
+
+        var lines = buckets.compactMap { found[$0.id] }
+        if let argonLine {
+            let insertIdx = lines.firstIndex(where: { $0.pool == "3p" }) ?? lines.endIndex
+            lines.insert(argonLine, at: insertIdx)
+        }
+        return lines
     }
 }
 
@@ -233,7 +284,9 @@ struct AntigravityRuntime: ProviderRuntime {
     let http: HTTPClient
     let credentials: CredentialSource
 
-    static let hosts = ["https://cloudcode-pa.googleapis.com", "https://daily-cloudcode-pa.googleapis.com"]
+    // Query both daily-cloudcode-pa (used by agy CLI) and cloudcode-pa (used by Antigravity IDE)
+    // and merge by keeping the active (most-used) fraction for each bucket.
+    static let hosts = ["https://daily-cloudcode-pa.googleapis.com", "https://cloudcode-pa.googleapis.com"]
     static let userAgent = "antigravity/2.24.0 (aidev_client; os_type=darwin; arch=arm64)"
 
     func fetch() async throws -> [MetricLine] {
@@ -268,7 +321,6 @@ struct AntigravityRuntime: ProviderRuntime {
             do {
                 try ProviderError.check(r, unauthorizedHint: "Token 已過期，請開啟 Antigravity 或執行 agy 自動更新")
                 bodies.append(r.json)
-                if AntigravityMapper.map(bodies).count == AntigravityMapper.buckets.count { break }
             } catch let e as ProviderError {
                 lastError = e
             }
