@@ -27,6 +27,7 @@ public final class SnapshotStore: ObservableObject {
     private let runtimes: [ProviderRuntime]
     private let settings: SettingsStore
     private let cacheURL: URL
+    private let scanLocalMetadata: Bool
     private var refreshTimer: Timer?
     private var carouselTimer: Timer?
     private var lastRefresh: Date?
@@ -35,6 +36,7 @@ public final class SnapshotStore: ObservableObject {
     public init(runtimes: [ProviderRuntime] = ProviderCatalog.all(), settings: SettingsStore, cacheURL: URL? = nil) {
         self.runtimes = runtimes
         self.settings = settings
+        self.scanLocalMetadata = (cacheURL == nil)
         self.cacheURL = cacheURL ?? FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("QuotaBar/snapshots.json")
         for r in runtimes { states[r.id] = ProviderState() }
@@ -110,30 +112,74 @@ public final class SnapshotStore: ObservableObject {
             }
             return true // Never fetched before
         }
-        guard !due.isEmpty else { return }
+        guard !due.isEmpty else {
+            if scanLocalMetadata {
+                Task { await self.refreshLocalMetadata() }
+            }
+            return
+        }
         lastRefresh = now
         for r in due { states[r.id]?.isRefreshing = true }
 
-        await withTaskGroup(of: (ProviderID, Result<[MetricLine], Error>).self) { group in
+        await withTaskGroup(of: (ProviderID, Result<ProviderFetchResult, Error>).self) { group in
             for r in due {
                 group.addTask { (r.id, await Self.runWithTimeout(r)) }
             }
-            for await (id, result) in group { apply(id, result) }
+            for await (id, result) in group { apply(id, result, localSpend: nil) }
         }
         saveCache()
+        if scanLocalMetadata {
+            Task { await self.refreshLocalMetadata() }
+        }
     }
 
-    private func apply(_ id: ProviderID, _ result: Result<[MetricLine], Error>) {
+    /// Updates offline local token spend and locally readable plan names on cached snapshots without hitting remote APIs.
+    public func refreshLocalMetadata() async {
+        var changed = false
+        for id in trackedProviders {
+            guard var snap = states[id]?.snapshot else { continue }
+            let spend = await LocalUsageScanner.shared.scan(provider: id)
+            if snap.localSpend != spend {
+                snap.localSpend = spend
+                changed = true
+            }
+            if id == .claude, snap.planName == nil,
+               let plan = ClaudeAuthStore(credentials: SystemCredentialSource()).credentialsInfo()?.planName {
+                snap.planName = plan
+                changed = true
+            }
+            if id == .antigravity, snap.planName == nil, snap.lines.contains(where: { $0.id == "argon-weekly" }) {
+                snap.planName = "Pro"
+                changed = true
+            }
+            if changed {
+                states[id]?.snapshot = snap
+            }
+        }
+        if changed { saveCache() }
+    }
+
+    private func apply(_ id: ProviderID, _ result: Result<ProviderFetchResult, Error>, localSpend: LocalSpendSummary?) {
         var s = states[id] ?? ProviderState()
         s.isRefreshing = false
         switch result {
-        case .success(let lines):
-            s.snapshot = ProviderSnapshot(provider: id, lines: lines)
+        case .success(let fetched):
+            s.snapshot = ProviderSnapshot(
+                provider: id,
+                lines: fetched.lines,
+                planName: fetched.planName ?? s.snapshot?.planName,
+                extraUsageText: fetched.extraUsageText,
+                localSpend: localSpend ?? s.snapshot?.localSpend
+            )
             s.error = nil
             s.backoffStep = 0
             s.backoffUntil = nil
         case .failure(let error):
             s.error = error.localizedDescription // keep last good snapshot
+            if var existing = s.snapshot, let localSpend {
+                existing.localSpend = localSpend
+                s.snapshot = existing
+            }
             if case ProviderError.rateLimited(let retryAfter) = error {
                 let step = Self.backoffSteps[min(s.backoffStep, Self.backoffSteps.count - 1)]
                 s.backoffUntil = Date().addingTimeInterval(max(step, retryAfter ?? 0))
@@ -143,10 +189,10 @@ public final class SnapshotStore: ObservableObject {
         states[id] = s
     }
 
-    nonisolated static func runWithTimeout(_ runtime: ProviderRuntime) async -> Result<[MetricLine], Error> {
-        await withTaskGroup(of: Result<[MetricLine], Error>?.self) { group in
+    nonisolated static func runWithTimeout(_ runtime: ProviderRuntime) async -> Result<ProviderFetchResult, Error> {
+        await withTaskGroup(of: Result<ProviderFetchResult, Error>?.self) { group in
             group.addTask {
-                do { return .success(try await runtime.fetch()) } catch { return .failure(error) }
+                do { return .success(try await runtime.fetchResult()) } catch { return .failure(error) }
             }
             group.addTask {
                 try? await Task.sleep(for: .seconds(providerTimeout))
@@ -180,28 +226,35 @@ public final class SnapshotStore: ObservableObject {
         states[.claude]?.snapshot = ProviderSnapshot(
             provider: .claude,
             lines: [
-                MetricLine(id: "5h", label: "5 小時", kind: .session, usedPercent: 28, resetsAt: now.addingTimeInterval(3 * 3600 + 18 * 60)),
-                MetricLine(id: "7d", label: "每週", kind: .weekly, usedPercent: 14, resetsAt: now.addingTimeInterval(5 * 86400 + 12 * 3600)),
+                MetricLine(id: "5h", label: "5H", kind: .session, usedPercent: 28, resetsAt: now.addingTimeInterval(3 * 3600 + 18 * 60)),
+                MetricLine(id: "7d", label: "7D", kind: .weekly, usedPercent: 14, resetsAt: now.addingTimeInterval(5 * 86400 + 12 * 3600)),
             ],
-            fetchedAt: now
+            fetchedAt: now,
+            planName: "Max 5x",
+            localSpend: LocalSpendSummary(todayCostUSD: 18.40, todayTokens: 2_450_000, monthCostUSD: 342.80, monthTokens: 48_900_000)
         )
         states[.codex]?.snapshot = ProviderSnapshot(
             provider: .codex,
             lines: [
-                MetricLine(id: "5h", label: "5 小時", kind: .session, usedPercent: 62, resetsAt: now.addingTimeInterval(2 * 3600 + 40 * 60)),
-                MetricLine(id: "7d", label: "每週", kind: .weekly, usedPercent: 45, resetsAt: now.addingTimeInterval(4 * 86400 + 6 * 3600)),
+                MetricLine(id: "5h", label: "5H", kind: .session, usedPercent: 62, resetsAt: now.addingTimeInterval(2 * 3600 + 40 * 60)),
+                MetricLine(id: "7d", label: "7D", kind: .weekly, usedPercent: 45, resetsAt: now.addingTimeInterval(4 * 86400 + 6 * 3600)),
             ],
-            fetchedAt: now
+            fetchedAt: now,
+            planName: "Plus",
+            extraUsageText: "點數餘額 $12.80 · 320 點",
+            localSpend: LocalSpendSummary(todayCostUSD: 6.20, todayTokens: 1_120_000, monthCostUSD: 118.50, monthTokens: 21_400_000)
         )
         states[.antigravity]?.snapshot = ProviderSnapshot(
             provider: .antigravity,
             lines: [
-                MetricLine(id: "gemini-5h", label: "Gemini · 5 小時", kind: .session, pool: "gemini", usedPercent: 8, resetsAt: now.addingTimeInterval(1 * 3600 + 25 * 60)),
-                MetricLine(id: "gemini-weekly", label: "Gemini · 每週", kind: .weekly, pool: "gemini", usedPercent: 12, resetsAt: now.addingTimeInterval(6 * 86400 + 4 * 3600)),
-                MetricLine(id: "3p-5h", label: "Claude/GPT · 5 小時", kind: .session, pool: "3p", usedPercent: 84, resetsAt: now.addingTimeInterval(42 * 60)),
-                MetricLine(id: "3p-weekly", label: "Claude/GPT · 每週", kind: .weekly, pool: "3p", usedPercent: 47, resetsAt: now.addingTimeInterval(6 * 86400 + 4 * 3600)),
+                MetricLine(id: "gemini-5h", label: "Gemini · 5H", kind: .session, pool: "gemini", usedPercent: 18, resetsAt: now.addingTimeInterval(42 * 60)),
+                MetricLine(id: "gemini-weekly", label: "Gemini · 7D", kind: .weekly, pool: "gemini", usedPercent: 84, resetsAt: now.addingTimeInterval(6 * 86400 + 4 * 3600)),
+                MetricLine(id: "3p-5h", label: "Claude/GPT · 5H", kind: .session, pool: "3p", usedPercent: 32, resetsAt: now.addingTimeInterval(2 * 3600 + 15 * 60)),
+                MetricLine(id: "3p-weekly", label: "Claude/GPT · 7D", kind: .weekly, pool: "3p", usedPercent: 47, resetsAt: now.addingTimeInterval(6 * 86400 + 4 * 3600)),
             ],
-            fetchedAt: now
+            fetchedAt: now,
+            planName: "Ultra",
+            localSpend: LocalSpendSummary(todayCostUSD: 24.60, todayTokens: 4_850_000, monthCostUSD: 412.90, monthTokens: 82_300_000)
         )
     }
 }

@@ -122,6 +122,11 @@ final class QuotaBarTests: XCTestCase {
         XCTAssertEqual(lines[2].usedPercent, 50, accuracy: 0.01)
         XCTAssertEqual(lines[3].usedPercent, 40, accuracy: 0.01)
         XCTAssertEqual(lines[4].usedPercent, 20, accuracy: 0.01)
+
+        // Verify Antigravity's headline sessionPercent & weeklyPercent always use Gemini pool, not Claude/GPT (3p)
+        let snap = ProviderSnapshot(provider: .antigravity, lines: lines)
+        XCTAssertEqual(snap.sessionPercent ?? -1, 0, accuracy: 0.01)   // Gemini 5h is 0% (not 3p's 40%)
+        XCTAssertEqual(snap.weeklyPercent ?? -1, 25, accuracy: 0.01)   // Gemini weekly is 25%
     }
 
     // MARK: - 3. Store: Stale-While-Revalidate & 429 Backoff
@@ -198,6 +203,53 @@ final class QuotaBarTests: XCTestCase {
         settings.setShownInMenuBar(.antigravity, true)
         XCTAssertTrue(settings.isTracked(.antigravity))
         XCTAssertTrue(settings.isShownInMenuBar(.antigravity))
+    }
+
+    func testPlanAndExtraUsageFormatting() {
+        XCTAssertEqual(ClaudeMapper.formatPlan(subscriptionType: "max", rateLimitTier: "default_claude_max_5x"), "Max 5x")
+        XCTAssertEqual(ClaudeMapper.formatPlan(subscriptionType: "max", rateLimitTier: "default_claude_max_20x"), "Max 20x")
+        XCTAssertEqual(ClaudeMapper.formatPlan(subscriptionType: "pro", rateLimitTier: nil), "Pro")
+
+        let claudeExtra: [String: Any] = ["extra_usage": ["is_enabled": true, "used_credits": 1250, "monthly_limit": 5000]]
+        XCTAssertEqual(ClaudeMapper.formatExtraUsage(claudeExtra), "額外用量 $12.50 / $50")
+
+        XCTAssertEqual(CodexMapper.formatPlan("plus"), "Plus")
+        XCTAssertEqual(CodexMapper.formatPlan("pro"), "Pro 200")
+        XCTAssertEqual(CodexMapper.formatPlan("promax"), "Pro 500")
+        XCTAssertEqual(CodexMapper.formatCredits(["credits": ["balance": 320.0]]), "點數餘額 $12.80 · 320 點")
+
+        XCTAssertEqual(AntigravityMapper.parsePlan(from: ["paidTier": ["id": "g1-ultra-tier"]]), "Ultra")
+        XCTAssertEqual(AntigravityMapper.parsePlan(from: ["paidTier": ["id": "g1-pro-tier"]]), "Pro")
+    }
+
+    func testTimeElapsedTickAndBurnRateProjection() {
+        let now = Date()
+        // 50% of 5-hour window elapsed (2.5h left), 25% used -> projected 50% at reset (~50% spare)
+        let comfortableLine = MetricLine(
+            id: "5h",
+            label: "5 小時",
+            kind: .session,
+            usedPercent: 25,
+            resetsAt: now.addingTimeInterval(2.5 * 3600),
+            periodSeconds: 5 * 3600
+        )
+        XCTAssertEqual(comfortableLine.timeElapsedFraction(now: now) ?? 0, 0.50, accuracy: 0.01)
+        let proj1 = comfortableLine.projectionText(now: now)
+        XCTAssertEqual(proj1?.isWarning, false)
+        XCTAssertEqual(proj1?.text, "預計剩 ~50%")
+
+        // 50% of 5-hour window elapsed (2.5h left), 80% used -> projected 160% -> runs out early!
+        let fastBurnLine = MetricLine(
+            id: "5h",
+            label: "5 小時",
+            kind: .session,
+            usedPercent: 80,
+            resetsAt: now.addingTimeInterval(2.5 * 3600),
+            periodSeconds: 5 * 3600
+        )
+        let proj2 = fastBurnLine.projectionText(now: now)
+        XCTAssertEqual(proj2?.isWarning, true)
+        XCTAssertTrue(proj2?.text.contains("後耗盡") == true)
     }
 }
 

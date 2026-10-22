@@ -52,31 +52,113 @@ public struct MetricLine: Codable, Sendable, Identifiable, Equatable {
     public var isNotStarted: Bool { usedPercent == 0 && resetsAt == nil && kind == .session }
 
     public var pace: Pace? { Pace.evaluate(usedPercent: usedPercent, resetsAt: resetsAt, periodSeconds: periodSeconds) }
+
+    /// Fraction (0...1) of the current window's time period that has already elapsed.
+    /// Used to draw the "even-pace time tick" on the progress bar.
+    public func timeElapsedFraction(now: Date = Date()) -> Double? {
+        guard let resetsAt, periodSeconds > 0 else { return nil }
+        let remaining = resetsAt.timeIntervalSince(now)
+        let elapsed = 1.0 - (remaining / periodSeconds)
+        guard elapsed >= 0.02, elapsed <= 0.99 else { return nil }
+        return min(max(elapsed, 0), 1)
+    }
+
+    /// Burn-rate projection text: estimates spare percentage at reset or time until exhaustion.
+    public func projectionText(now: Date = Date()) -> (text: String, isWarning: Bool)? {
+        guard let resetsAt, usedPercent > 0, periodSeconds > 0 else { return nil }
+        let remaining = resetsAt.timeIntervalSince(now)
+        guard remaining > 60 else { return nil }
+        let elapsed = 1.0 - (remaining / periodSeconds)
+        guard elapsed >= 0.05, elapsed < 1.0 else { return nil }
+
+        let projectedTotal = usedPercent / elapsed
+        if projectedTotal >= 100 {
+            let elapsedSeconds = elapsed * periodSeconds
+            let ratePerSecond = usedPercent / max(elapsedSeconds, 1)
+            let secsLeft = max(60, Int(((100.0 - usedPercent) / ratePerSecond).rounded()))
+            let h = secsLeft / 3600
+            let m = (secsLeft % 3600) / 60
+            let dur = h >= 24 ? "\(h / 24)d \(h % 24)h" : (h > 0 ? "\(h)h \(m)m" : "\(m)m")
+            return ("~\(dur) 後耗盡", true)
+        } else {
+            let spare = max(0, Int((100.0 - projectedTotal).rounded()))
+            return ("預計剩 ~\(spare)%", false)
+        }
+    }
+}
+
+/// Summary of local token usage and estimated API-equivalent USD value over Today and the last 30 days.
+public struct LocalSpendSummary: Codable, Sendable, Equatable {
+    public let todayCostUSD: Double
+    public let todayTokens: Int
+    public let monthCostUSD: Double
+    public let monthTokens: Int
+
+    public init(todayCostUSD: Double, todayTokens: Int, monthCostUSD: Double, monthTokens: Int) {
+        self.todayCostUSD = todayCostUSD
+        self.todayTokens = todayTokens
+        self.monthCostUSD = monthCostUSD
+        self.monthTokens = monthTokens
+    }
+
+    public var hasAnyUsage: Bool { todayTokens > 0 || monthTokens > 0 || todayCostUSD > 0 || monthCostUSD > 0 }
 }
 
 public struct ProviderSnapshot: Codable, Sendable, Equatable {
     public let provider: ProviderID
     public let lines: [MetricLine]
     public let fetchedAt: Date
+    public var planName: String?
+    public var extraUsageText: String?
+    public var localSpend: LocalSpendSummary?
 
-    public init(provider: ProviderID, lines: [MetricLine], fetchedAt: Date = Date()) {
+    public init(
+        provider: ProviderID,
+        lines: [MetricLine],
+        fetchedAt: Date = Date(),
+        planName: String? = nil,
+        extraUsageText: String? = nil,
+        localSpend: LocalSpendSummary? = nil
+    ) {
         self.provider = provider
         self.lines = lines
         self.fetchedAt = fetchedAt
+        self.planName = planName
+        self.extraUsageText = extraUsageText
+        self.localSpend = localSpend
     }
 
-    /// Highest session usage — the headline number.
+    /// Primary session usage — for Antigravity, always prefers its native Gemini pool (`pool == "gemini"`)
+    /// rather than the third-party Claude/GPT pool (`pool == "3p"`).
     public var sessionPercent: Double? {
-        lines.filter { $0.kind == .session }.map(\.usedPercent).max()
+        if provider == .antigravity,
+           let gemini = lines.first(where: { $0.kind == .session && $0.pool == "gemini" }) {
+            return gemini.usedPercent
+        }
+        return lines.filter { $0.kind == .session }.map(\.usedPercent).max()
     }
 
+    /// Primary weekly usage — for Antigravity, always prefers its native Gemini weekly pool (`id == "gemini-weekly"`).
     public var weeklyPercent: Double? {
-        lines.filter { $0.kind == .weekly }.map(\.usedPercent).max()
+        if provider == .antigravity {
+            if let geminiWeekly = lines.first(where: { $0.id == "gemini-weekly" })
+                ?? lines.first(where: { $0.kind == .weekly && $0.pool == "gemini" }) {
+                return geminiWeekly.usedPercent
+            }
+        }
+        return lines.filter { $0.kind == .weekly }.map(\.usedPercent).max()
     }
 
-    /// True when any window of `kind` has less than or equal to 1 hour (3600s) remaining before reset.
+    /// True when the primary window of `kind` has less than or equal to 1 hour (3600s) remaining before reset.
     public func isResettingWithinOneHour(kind: WindowKind, now: Date = Date()) -> Bool {
-        lines.filter { $0.kind == kind }.contains { line in
+        let targetLines: [MetricLine]
+        if provider == .antigravity {
+            let geminiLines = lines.filter { $0.kind == kind && $0.pool == "gemini" }
+            targetLines = geminiLines.isEmpty ? lines.filter { $0.kind == kind } : geminiLines
+        } else {
+            targetLines = lines.filter { $0.kind == kind }
+        }
+        return targetLines.contains { line in
             guard let reset = line.resetsAt else { return false }
             let remaining = reset.timeIntervalSince(now)
             return remaining > 0 && remaining <= 3600

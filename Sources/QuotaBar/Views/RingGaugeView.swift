@@ -164,11 +164,20 @@ struct DualRingGauge: View {
     var lineWidth: CGFloat = 5.5
 
     private var sessionUsed: Double {
-        lines.filter { $0.kind == .session }.map(\.usedPercent).max() ?? 0
+        if provider == .antigravity,
+           let gemini = lines.first(where: { $0.kind == .session && $0.pool == "gemini" }) {
+            return gemini.usedPercent
+        }
+        return lines.filter { $0.kind == .session }.map(\.usedPercent).max() ?? 0
     }
 
     private var weeklyUsed: Double {
-        lines.filter { $0.kind == .weekly }.map(\.usedPercent).max() ?? 0
+        if provider == .antigravity,
+           let gemini = lines.first(where: { $0.id == "gemini-weekly" })
+               ?? lines.first(where: { $0.kind == .weekly && $0.pool == "gemini" }) {
+            return gemini.usedPercent
+        }
+        return lines.filter { $0.kind == .weekly }.map(\.usedPercent).max() ?? 0
     }
 
     private var innerInset: CGFloat {
@@ -342,8 +351,8 @@ struct MenuBarStripView: View {
     @ViewBuilder
     private func fixedLabel(_ text: String, font: Font, color: Color) -> some View {
         ZStack(alignment: .leading) {
-            Text("5h").font(font).fixedSize().hidden()
-            Text("7d").font(font).fixedSize().hidden()
+            Text("5H").font(font).fixedSize().hidden()
+            Text("7D").font(font).fixedSize().hidden()
             Text(text)
                 .font(font)
                 .foregroundStyle(color)
@@ -398,11 +407,11 @@ struct MenuBarStripView: View {
                             leadingIndicator(for: id, snap: snap, size: 14)
                             VStack(alignment: .leading, spacing: -2) {
                                 HStack(spacing: 2) {
-                                    fixedLabel("5h", font: stackLabelFont, color: sessionLabelColor)
+                                    fixedLabel("5H", font: stackLabelFont, color: sessionLabelColor)
                                     fixedPercent(snap.sessionPercent, font: stackValueFont, color: sessionValueColor)
                                 }
                                 HStack(spacing: 2) {
-                                    fixedLabel("7d", font: stackLabelFont, color: weeklyLabelColor)
+                                    fixedLabel("7D", font: stackLabelFont, color: weeklyLabelColor)
                                     fixedPercent(snap.weeklyPercent, font: stackValueFont, color: weeklyValueColor)
                                 }
                             }

@@ -1,9 +1,28 @@
 import Foundation
 
+public struct ProviderFetchResult: Sendable {
+    public let lines: [MetricLine]
+    public let planName: String?
+    public let extraUsageText: String?
+
+    public init(lines: [MetricLine], planName: String? = nil, extraUsageText: String? = nil) {
+        self.lines = lines
+        self.planName = planName
+        self.extraUsageText = extraUsageText
+    }
+}
+
 /// One provider = AuthStore (read credentials) + UsageClient (HTTP) + Mapper (normalize).
 public protocol ProviderRuntime: Sendable {
     var id: ProviderID { get }
     func fetch() async throws -> [MetricLine]
+    func fetchResult() async throws -> ProviderFetchResult
+}
+
+public extension ProviderRuntime {
+    func fetchResult() async throws -> ProviderFetchResult {
+        ProviderFetchResult(lines: try await fetch())
+    }
 }
 
 public enum ProviderCatalog {
@@ -25,29 +44,82 @@ struct ClaudeAuthStore: Sendable {
     let credentials: CredentialSource
 
     func accessToken() -> String? {
+        credentialsInfo()?.accessToken
+    }
+
+    func credentialsInfo() -> (accessToken: String, planName: String?)? {
         let base = credentials.env("CLAUDE_CONFIG_DIR") ?? "~/.claude"
         let raw = Parse.object(credentials.keychain(service: "Claude Code-credentials", account: nil))
             ?? Parse.object(credentials.file(base + "/.credentials.json"))
-        return (raw?["claudeAiOauth"] as? [String: Any])?["accessToken"] as? String
+        guard let oauth = raw?["claudeAiOauth"] as? [String: Any],
+              let token = oauth["accessToken"] as? String, !token.isEmpty
+        else { return nil }
+        let subType = oauth["subscriptionType"] as? String
+        let tier = oauth["rateLimitTier"] as? String
+        let plan = ClaudeMapper.formatPlan(subscriptionType: subType, rateLimitTier: tier)
+        return (token, plan)
     }
 }
 
 enum ClaudeMapper {
     static let windows: [(key: String, label: String, kind: WindowKind)] = [
-        ("five_hour", "5 小時", .session),
-        ("seven_day", "每週", .weekly),
-        ("seven_day_opus", "每週 · Opus", .weekly),
-        ("seven_day_sonnet", "每週 · Sonnet", .weekly),
+        ("five_hour", "5H", .session),
+        ("seven_day", "7D", .weekly),
+        ("seven_day_opus", "Opus · 7D", .weekly),
+        ("seven_day_sonnet", "Sonnet · 7D", .weekly),
     ]
 
     static func map(_ body: [String: Any]) throws -> [MetricLine] {
-        let lines = windows.compactMap { spec -> MetricLine? in
+        var lines = windows.compactMap { spec -> MetricLine? in
             guard let w = body[spec.key] as? [String: Any], let used = Parse.number(w["utilization"]) else { return nil }
             return MetricLine(id: spec.key, label: spec.label, kind: spec.kind,
                               usedPercent: used, resetsAt: Parse.date(w["resets_at"]))
         }
+        // Scoped weekly model limits (e.g., Fable)
+        if let limits = body["limits"] as? [[String: Any]] {
+            for entry in limits where entry["kind"] as? String == "weekly_scoped" {
+                guard let scope = entry["scope"] as? [String: Any],
+                      let model = scope["model"] as? [String: Any],
+                      let displayName = model["display_name"] as? String, !displayName.isEmpty,
+                      let used = Parse.number(entry["percent"])
+                else { continue }
+                lines.append(MetricLine(
+                    id: "weekly_\(displayName.lowercased())",
+                    label: "\(displayName) · 7D",
+                    kind: .weekly,
+                    usedPercent: used,
+                    resetsAt: Parse.date(entry["resets_at"])
+                ))
+            }
+        }
         guard !lines.isEmpty else { throw ProviderError.parse }
         return lines
+    }
+
+    static func formatPlan(subscriptionType: String?, rateLimitTier: String?) -> String? {
+        guard let raw = subscriptionType?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+            return nil
+        }
+        let base = raw.prefix(1).uppercased() + raw.dropFirst().lowercased()
+        if let tier = rateLimitTier, let match = tier.range(of: #"\d+x"#, options: .regularExpression) {
+            return "\(base) \(tier[match])"
+        }
+        return base
+    }
+
+    static func formatExtraUsage(_ body: [String: Any]) -> String? {
+        guard let extra = body["extra_usage"] as? [String: Any],
+              extra["is_enabled"] as? Bool == true,
+              let usedCents = Parse.number(extra["used_credits"])
+        else { return nil }
+        let usedUSD = usedCents / 100.0
+        if let limitCents = Parse.number(extra["monthly_limit"]), limitCents > 0 {
+            let limitUSD = limitCents / 100.0
+            return String(format: "額外用量 $%.2f / $%.0f", usedUSD, limitUSD)
+        } else if usedUSD > 0 {
+            return String(format: "額外用量 $%.2f", usedUSD)
+        }
+        return nil
     }
 }
 
@@ -57,19 +129,25 @@ struct ClaudeRuntime: ProviderRuntime {
     let credentials: CredentialSource
 
     func fetch() async throws -> [MetricLine] {
-        guard let token = ClaudeAuthStore(credentials: credentials).accessToken() else {
+        try await fetchResult().lines
+    }
+
+    func fetchResult() async throws -> ProviderFetchResult {
+        guard let info = ClaudeAuthStore(credentials: credentials).credentialsInfo() else {
             throw ProviderError.notLoggedIn("找不到 Claude Code 登入，請先執行 claude")
         }
         var req = URLRequest(url: URL(string: "https://api.anthropic.com/api/oauth/usage")!)
         req.httpMethod = "GET"
-        req.setValue("Bearer \(token.trimmingCharacters(in: .whitespacesAndNewlines))", forHTTPHeaderField: "Authorization")
+        req.setValue("Bearer \(info.accessToken.trimmingCharacters(in: .whitespacesAndNewlines))", forHTTPHeaderField: "Authorization")
         req.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
         req.setValue("application/json", forHTTPHeaderField: "Accept")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue("claude-cli/2.1.294 (external, cli)", forHTTPHeaderField: "User-Agent")
         let r = try await http.send(req)
         try ProviderError.check(r, unauthorizedHint: "Token 已過期，執行一次 claude 即可自動更新")
-        return try ClaudeMapper.map(r.json)
+        let lines = try ClaudeMapper.map(r.json)
+        let extra = ClaudeMapper.formatExtraUsage(r.json)
+        return ProviderFetchResult(lines: lines, planName: info.planName, extraUsageText: extra)
     }
 }
 
@@ -93,17 +171,68 @@ enum CodexMapper {
     static func map(_ body: [String: Any]) throws -> [MetricLine] {
         guard let rl = body["rate_limit"] as? [String: Any] else { throw ProviderError.parse }
         let slots: [(key: String, fallback: WindowKind)] = [("primary_window", .session), ("secondary_window", .weekly)]
-        let lines = slots.compactMap { slot -> MetricLine? in
+        var lines = slots.compactMap { slot -> MetricLine? in
             guard let w = rl[slot.key] as? [String: Any], let used = Parse.number(w["used_percent"]) else { return nil }
             // Classify by duration, not slot (Codex sometimes moves weekly into primary).
             let seconds = Parse.number(w["limit_window_seconds"])
             let kind: WindowKind = seconds.map { $0 <= 6 * 3600 ? .session : .weekly } ?? slot.fallback
             let reset = Parse.number(w["reset_at"]).map { Date(timeIntervalSince1970: $0) }
-            return MetricLine(id: kind.rawValue, label: kind == .session ? "5 小時" : "每週", kind: kind,
+            return MetricLine(id: kind.rawValue, label: kind == .session ? "5H" : "7D", kind: kind,
                               usedPercent: used, resetsAt: reset, periodSeconds: seconds)
         }
         guard !lines.isEmpty else { throw ProviderError.parse }
-        return lines.sorted { $0.kind == .session && $1.kind == .weekly }
+        lines.sort { $0.kind == .session && $1.kind == .weekly }
+
+        // Optional Spark model-specific limits when present in `additional_rate_limits`
+        if let extras = body["additional_rate_limits"] as? [[String: Any]],
+           let spark = extras.first(where: {
+               (($0["limit_name"] as? String) ?? ($0["metered_feature"] as? String) ?? "")
+                   .lowercased().contains("spark")
+           }),
+           let sparkRL = spark["rate_limit"] as? [String: Any] {
+            for slot in slots {
+                guard let w = sparkRL[slot.key] as? [String: Any],
+                      let used = Parse.number(w["used_percent"]) else { continue }
+                let seconds = Parse.number(w["limit_window_seconds"])
+                let kind: WindowKind = seconds.map { $0 <= 6 * 3600 ? .session : .weekly } ?? slot.fallback
+                let reset = Parse.number(w["reset_at"]).map { Date(timeIntervalSince1970: $0) }
+                lines.append(MetricLine(
+                    id: "spark-\(kind.rawValue)",
+                    label: kind == .session ? "Spark · 5H" : "Spark · 7D",
+                    kind: kind,
+                    usedPercent: used,
+                    resetsAt: reset,
+                    periodSeconds: seconds
+                ))
+            }
+        }
+        return lines
+    }
+
+    static func formatPlan(_ value: Any?) -> String? {
+        guard let raw = (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+            return nil
+        }
+        switch raw.lowercased() {
+        case "plus": return "Plus"
+        case "prolite": return "Pro 100"
+        case "pro": return "Pro 200"
+        case "promax": return "Pro 500"
+        case "team": return "Team"
+        case "self_serve_business_prolite": return "Business"
+        default:
+            return raw.split(separator: "_").map { $0.prefix(1).uppercased() + $0.dropFirst().lowercased() }.joined(separator: " ")
+        }
+    }
+
+    static func formatCredits(_ body: [String: Any]) -> String? {
+        guard let creditsObj = body["credits"] as? [String: Any],
+              let balance = Parse.number(creditsObj["balance"]), balance > 0
+        else { return nil }
+        let credits = max(0, Int(balance.rounded(.down)))
+        guard credits > 0 else { return nil }
+        let usd = Double(credits) * 0.04
+        return String(format: "點數餘額 $%.2f · %d 點", usd, credits)
     }
 }
 
@@ -113,6 +242,10 @@ struct CodexRuntime: ProviderRuntime {
     let credentials: CredentialSource
 
     func fetch() async throws -> [MetricLine] {
+        try await fetchResult().lines
+    }
+
+    func fetchResult() async throws -> ProviderFetchResult {
         guard let t = CodexAuthStore(credentials: credentials).tokens() else {
             throw ProviderError.notLoggedIn("找不到 Codex 登入，請先執行 codex login")
         }
@@ -123,7 +256,10 @@ struct CodexRuntime: ProviderRuntime {
         if let account = t.account { req.setValue(account, forHTTPHeaderField: "ChatGPT-Account-Id") }
         let r = try await http.send(req)
         try ProviderError.check(r, unauthorizedHint: "Token 已過期，執行一次 codex 即可自動更新")
-        return try CodexMapper.map(r.json)
+        let lines = try CodexMapper.map(r.json)
+        let plan = CodexMapper.formatPlan(r.json["plan_type"])
+        let credits = CodexMapper.formatCredits(r.json)
+        return ProviderFetchResult(lines: lines, planName: plan, extraUsageText: credits)
     }
 }
 
@@ -180,12 +316,13 @@ struct AntigravityAuthStore: Sendable {
     }()
 }
 
-/// Thread-safe in-memory cache for Antigravity's refreshed access token so we don't refresh on every cycle.
+/// Thread-safe in-memory cache for Antigravity's refreshed access token and plan tier so we don't refresh on every cycle.
 private final class InMemoryTokenCache: @unchecked Sendable {
     static let shared = InMemoryTokenCache()
     private let lock = NSLock()
     private var access: String?
     private var expiry: Date?
+    private var planName: String?
 
     func get() -> String? {
         lock.lock()
@@ -200,15 +337,55 @@ private final class InMemoryTokenCache: @unchecked Sendable {
         access = token
         expiry = Date().addingTimeInterval(max(expiresIn, 300))
     }
+
+    func getPlan() -> String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return planName
+    }
+
+    func setPlan(_ plan: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        planName = plan
+    }
 }
 
 enum AntigravityMapper {
     static let argonGroupName = "Gemini 4 Argon"
+    static let paidTierPlans = [
+        "g1-pro-tier": "Pro",
+        "g1-ultra-tier": "Ultra",
+        "g1-ultra-lite-tier": "Ultra Lite",
+    ]
+
+    static func parsePlan(from loadCodeAssistBody: [String: Any]) -> String? {
+        if let paid = loadCodeAssistBody["paidTier"] as? [String: Any] {
+            if let id = paid["id"] as? String, let mapped = paidTierPlans[id] { return mapped }
+            if let name = paid["name"] as? String, let f = formatTierText(name) { return f }
+        }
+        if let curr = loadCodeAssistBody["currentTier"] as? [String: Any],
+           let name = curr["name"] as? String,
+           let f = formatTierText(name) {
+            return f
+        }
+        return nil
+    }
+
+    private static func formatTierText(_ raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        for kw in ["Ultra", "Pro", "Free"] where trimmed.lowercased().contains(kw.lowercased()) {
+            return kw
+        }
+        return nil
+    }
+
     static let buckets: [(id: String, label: String, kind: WindowKind, pool: String)] = [
-        ("gemini-5h", "Gemini · 5 小時", .session, "gemini"),
-        ("gemini-weekly", "Gemini · 每週", .weekly, "gemini"),
-        ("3p-5h", "Claude/GPT · 5 小時", .session, "3p"),
-        ("3p-weekly", "Claude/GPT · 每週", .weekly, "3p"),
+        ("gemini-5h", "Gemini · 5H", .session, "gemini"),
+        ("gemini-weekly", "Gemini · 7D", .weekly, "gemini"),
+        ("3p-5h", "Claude/GPT · 5H", .session, "3p"),
+        ("3p-weekly", "Claude/GPT · 7D", .weekly, "3p"),
     ]
 
     /// Merges summary bodies across both Cloud Code hosts (`daily-cloudcode-pa` and `cloudcode-pa`):
@@ -235,7 +412,7 @@ enum AntigravityMapper {
                        let remaining = Parse.number(weekly["remainingFraction"]), remaining.isFinite {
                         argonLine = MetricLine(
                             id: "argon-weekly",
-                            label: "Gemini 4 Argon · 每週",
+                            label: "Gemini 4 Argon · 7D",
                             kind: .weekly,
                             pool: "gemini",
                             usedPercent: (1 - remaining) * 100,
@@ -290,6 +467,10 @@ struct AntigravityRuntime: ProviderRuntime {
     static let userAgent = "antigravity/2.24.0 (aidev_client; os_type=darwin; arch=arm64)"
 
     func fetch() async throws -> [MetricLine] {
+        try await fetchResult().lines
+    }
+
+    func fetchResult() async throws -> ProviderFetchResult {
         guard let stored = AntigravityAuthStore(credentials: credentials).load() else {
             throw ProviderError.notLoggedIn("找不到 Antigravity 登入，請開啟 Antigravity 或執行 agy")
         }
@@ -327,7 +508,34 @@ struct AntigravityRuntime: ProviderRuntime {
         }
         let lines = AntigravityMapper.map(bodies)
         if lines.isEmpty { throw lastError }
-        return lines
+
+        var plan = InMemoryTokenCache.shared.getPlan()
+        if plan == nil {
+            plan = await fetchPlanName(token: activeToken)
+            if let plan { InMemoryTokenCache.shared.setPlan(plan) }
+        }
+        if plan == nil && lines.contains(where: { $0.id == "argon-weekly" }) {
+            plan = "Pro"
+        }
+        return ProviderFetchResult(lines: lines, planName: plan)
+    }
+
+    private func fetchPlanName(token: String) async -> String? {
+        let payload = Data(#"{"metadata":{"ideType":"ANTIGRAVITY","platform":"PLATFORM_UNSPECIFIED","pluginType":"GEMINI"}}"#.utf8)
+        for host in Self.hosts.reversed() {
+            var req = URLRequest(url: URL(string: host + "/v1internal:loadCodeAssist")!)
+            req.httpMethod = "POST"
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.setValue("application/json", forHTTPHeaderField: "Accept")
+            req.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
+            req.httpBody = payload
+            if let r = try? await http.send(req), r.status == 200,
+               let plan = AntigravityMapper.parsePlan(from: r.json) {
+                return plan
+            }
+        }
+        return nil
     }
 
     private func summary(host: String, token: String) async throws -> HTTPResult {

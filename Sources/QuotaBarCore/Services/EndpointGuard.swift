@@ -18,9 +18,11 @@ public enum EndpointGuard {
         .init(method: "GET", host: "api.anthropic.com", path: "/api/oauth/usage"),
         // Codex CLI's own `/status` read.
         .init(method: "GET", host: "chatgpt.com", path: "/backend-api/wham/usage"),
-        // Antigravity quota summary (gRPC-style POST with empty `{}` body, read-only).
+        // Antigravity quota summary & tier metadata (gRPC-style POST, read-only).
         .init(method: "POST", host: "cloudcode-pa.googleapis.com", path: "/v1internal:retrieveUserQuotaSummary"),
         .init(method: "POST", host: "daily-cloudcode-pa.googleapis.com", path: "/v1internal:retrieveUserQuotaSummary"),
+        .init(method: "POST", host: "cloudcode-pa.googleapis.com", path: "/v1internal:loadCodeAssist"),
+        .init(method: "POST", host: "daily-cloudcode-pa.googleapis.com", path: "/v1internal:loadCodeAssist"),
         // Google OAuth access-token exchange (Google refresh tokens do not rotate; kept in memory only).
         .init(method: "POST", host: "oauth2.googleapis.com", path: "/token"),
         // Read-only GitHub Release check for self-update.

@@ -63,32 +63,89 @@ final class AppContainer {
     }
 }
 
-/// Threshold notifications: alerts once per reset window when crossing 80% or 95%.
+/// Threshold & Reset notifications:
+/// 1. Alerts once per reset window when crossing 80% or 95% usage.
+/// 2. Alerts when a previously used window (>= 20% used) crosses its reset time or refills back to full (< 10% used).
 @MainActor
 final class QuotaNotifier {
     private var fired = Set<String>()
+    private var previousLines: [String: (usedPercent: Double, resetsAt: Date?)] = [:]
     private var cancellable: AnyCancellable?
+    private var resetWatchTimer: Timer?
+    private weak var store: SnapshotStore?
+    private weak var settings: SettingsStore?
 
     init(store: SnapshotStore, settings: SettingsStore) {
+        self.store = store
+        self.settings = settings
         cancellable = store.$states.sink { [weak self] states in
             guard settings.notificationsEnabled else { return }
             self?.evaluate(states)
         }
+        // Check every 30s whether any active window's `resetsAt` timestamp just passed
+        let timer = Timer(timeInterval: 30, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.checkElapsedResets() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        resetWatchTimer = timer
     }
 
     private func evaluate(_ states: [ProviderID: ProviderState]) {
+        let now = Date()
         for (id, state) in states {
             guard let snap = state.snapshot else { continue }
             for line in snap.lines {
+                let lineKey = "\(id.rawValue):\(line.id)"
+                let resetKey = line.resetsAt.map { String(Int($0.timeIntervalSince1970)) } ?? "none"
+
+                // 1. Check if quota refilled compared to previous reading
+                if let prev = previousLines[lineKey] {
+                    let droppedSignificantly = prev.usedPercent >= 20 && line.usedPercent < 10 && (prev.usedPercent - line.usedPercent) >= 15
+                    let deadlinePassed = prev.resetsAt != nil && prev.resetsAt! <= now && prev.usedPercent >= 20 && line.usedPercent < prev.usedPercent
+                    if droppedSignificantly || deadlinePassed {
+                        let refillKey = "refill:\(lineKey):\(resetKey)"
+                        if !fired.contains(refillKey) {
+                            fired.insert(refillKey)
+                            let avail = max(0, min(100, Int((100 - line.usedPercent).rounded())))
+                            send(
+                                title: "🎉 \(id.displayName) 額度已滿血復活！",
+                                body: "\(line.label) 已重置完成（目前 \(avail)% 可用），可以繼續開工了！"
+                            )
+                        }
+                    }
+                }
+                previousLines[lineKey] = (line.usedPercent, line.resetsAt)
+
+                // 2. Check high-usage thresholds (80% / 95%)
                 for threshold in [95.0, 80.0] where line.usedPercent >= threshold {
-                    let resetKey = line.resetsAt.map { String(Int($0.timeIntervalSince1970)) } ?? "none"
-                    let key = "\(id.rawValue):\(line.id):\(Int(threshold)):\(resetKey)"
+                    let key = "\(lineKey):\(Int(threshold)):\(resetKey)"
                     guard !fired.contains(key) else { break }
                     fired.insert(key)
-                    send(title: "\(id.displayName) 額度提醒",
-                         body: "\(line.label) 已使用 \(Int(line.usedPercent.rounded()))%（超過 \(Int(threshold))%）")
+                    send(
+                        title: "\(id.displayName) 額度提醒",
+                        body: "\(line.label) 已使用 \(Int(line.usedPercent.rounded()))%（超過 \(Int(threshold))%）"
+                    )
                     break
                 }
+            }
+        }
+    }
+
+    private func checkElapsedResets() {
+        guard let store, let settings, settings.notificationsEnabled else { return }
+        let now = Date()
+        for (id, state) in store.states {
+            guard let snap = state.snapshot else { continue }
+            for line in snap.lines {
+                guard let reset = line.resetsAt, line.usedPercent >= 20, reset <= now else { continue }
+                let resetKey = String(Int(reset.timeIntervalSince1970))
+                let refillKey = "refill:\(id.rawValue):\(line.id):\(resetKey)"
+                guard !fired.contains(refillKey) else { continue }
+                fired.insert(refillKey)
+                send(
+                    title: "🎉 \(id.displayName) 額度已滿血復活！",
+                    body: "\(line.label) 重置時間已到（100% 可用），可以繼續開工了！"
+                )
             }
         }
     }
@@ -196,12 +253,12 @@ private struct MenuBarShowcaseBanner: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 12) {
                 showcaseTile(
-                    title: "① 品牌圖示 · 雙行 (5h + 7d)",
-                    subtitle: "預設模式 · 清楚標示 5h 與 7d 剩餘 %",
+                    title: "① 品牌圖示 · 雙行 (5H + 7D)",
+                    subtitle: "預設模式 · 清楚標示 5H 與 7D 剩餘 %",
                     settings: makeSettings(mode: .single, metric: .sessionAndWeekly, icon: .logo, single: .claude)
                 )
                 showcaseTile(
-                    title: "② 品牌圖示 · 單行 (僅 5 小時)",
+                    title: "② 品牌圖示 · 單行 (僅 5H)",
                     subtitle: "極簡模式 · 固定寬度輪播不跳動",
                     settings: makeSettings(mode: .single, metric: .sessionOnly, icon: .logo, single: .claude)
                 )

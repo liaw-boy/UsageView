@@ -167,8 +167,10 @@ struct DashboardView: View {
 
     // MARK: - Compact Footer
 
+    @State private var sharedDashboardToast = false
+
     private var footer: some View {
-        HStack {
+        HStack(spacing: 6) {
             Button {
                 withAnimation(.easeInOut(duration: 0.16)) {
                     controller.showingSettings.toggle()
@@ -186,6 +188,31 @@ struct DashboardView: View {
                 .overlay(Capsule().strokeBorder(Theme.cardBorder, lineWidth: 1))
             }
             .buttonStyle(.plain)
+
+            if !controller.showingSettings && !store.panelProviders.isEmpty {
+                Button {
+                    ShareExporter.shareAllCards(store: store, showRemaining: settings.showRemaining)
+                    withAnimation(.easeInOut(duration: 0.15)) { sharedDashboardToast = true }
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .seconds(2))
+                        withAnimation(.easeInOut(duration: 0.2)) { sharedDashboardToast = false }
+                    }
+                } label: {
+                    HStack(spacing: 3.5) {
+                        Image(systemName: sharedDashboardToast ? "checkmark.circle.fill" : "square.and.arrow.up")
+                            .font(.system(size: 10.5, weight: .semibold))
+                        Text(sharedDashboardToast ? "已複製並開啟分享" : "分享")
+                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    }
+                    .foregroundStyle(sharedDashboardToast ? Color(red: 0.30, green: 0.88, blue: 0.56) : .white.opacity(0.82))
+                    .padding(.horizontal, 8.5)
+                    .padding(.vertical, 4)
+                    .background(Theme.cardBackground, in: Capsule())
+                    .overlay(Capsule().strokeBorder(Theme.cardBorder, lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .help("開啟 macOS 原生分享選單（AirDrop / 訊息 / 備忘錄）並同步複製總覽圖卡到剪貼簿")
+            }
 
             Spacer()
 
@@ -206,13 +233,19 @@ struct ProviderCardView: View {
     let state: ProviderState
     let showRemaining: Bool
     let onToggleMode: () -> Void
+    var isSnapshotExport: Bool = false
 
     @State private var isHovered = false
+    @State private var copiedToast = false
 
     private var lines: [MetricLine] { state.snapshot?.lines ?? [] }
 
     private var headlinePace: Pace? {
-        lines.first(where: { $0.kind == .session })?.pace ?? lines.first?.pace
+        if provider == .antigravity,
+           let gemini = lines.first(where: { $0.kind == .session && $0.pool == "gemini" }) {
+            return gemini.pace
+        }
+        return lines.first(where: { $0.kind == .session })?.pace ?? lines.first?.pace
     }
 
     var body: some View {
@@ -222,11 +255,15 @@ struct ProviderCardView: View {
                 .onTapGesture(perform: onToggleMode)
 
             VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
+                HStack(spacing: 5) {
                     ProviderLogoView(provider: provider, size: 13.5, tinted: true)
                     Text(provider.displayName)
                         .font(.system(size: 13, weight: .bold, design: .rounded))
                         .foregroundStyle(.white)
+
+                    if let plan = state.snapshot?.planName, !plan.isEmpty {
+                        PlanBadgeView(plan: plan, color: Theme.brandColor(provider))
+                    }
 
                     if let error = state.error, state.snapshot != nil {
                         HStack(spacing: 2.5) {
@@ -242,10 +279,33 @@ struct ProviderCardView: View {
                         .help("官方 API 暫時冷卻中，目前顯示上次成功同步的快取資料（\(error)）")
                     }
 
-                    Spacer()
+                    Spacer(minLength: 2)
 
                     if let pace = headlinePace {
                         PaceChip(pace: pace)
+                    }
+
+                    if !isSnapshotExport && !lines.isEmpty {
+                        Button {
+                            triggerShare(openPicker: true)
+                        } label: {
+                            HStack(spacing: 2.5) {
+                                Image(systemName: copiedToast ? "checkmark" : "square.and.arrow.up")
+                                    .font(.system(size: 9.5, weight: .bold))
+                                if copiedToast {
+                                    Text("已複製")
+                                        .font(.system(size: 8.5, weight: .bold, design: .rounded))
+                                }
+                            }
+                            .foregroundStyle(copiedToast ? Color(red: 0.30, green: 0.88, blue: 0.56) : .white.opacity(isHovered ? 0.88 : 0.48))
+                            .padding(.horizontal, 5.5)
+                            .padding(.vertical, 2.5)
+                            .background(
+                                Capsule().fill(copiedToast ? Color(red: 0.30, green: 0.88, blue: 0.56).opacity(0.18) : Color.white.opacity(isHovered ? 0.12 : 0.05))
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .help("分享 \(provider.displayName) 額度圖卡（開啟 macOS 分享選單並複製到剪貼簿）")
                     }
                 }
 
@@ -273,6 +333,10 @@ struct ProviderCardView: View {
                     }
                     .opacity(state.isStale ? 0.78 : 1.0)
                 }
+
+                if let snap = state.snapshot, snap.localSpend?.hasAnyUsage == true || snap.extraUsageText != nil {
+                    CardSpendFooterRow(spend: snap.localSpend, extraUsageText: snap.extraUsageText)
+                }
             }
         }
         .padding(.horizontal, 10)
@@ -288,6 +352,264 @@ struct ProviderCardView: View {
         .onHover { hovering in
             withAnimation(.easeOut(duration: 0.15)) { isHovered = hovering }
         }
+        .contextMenu {
+            Button {
+                triggerShare(openPicker: true)
+            } label: {
+                Label("分享 \(provider.displayName) 圖卡 (AirDrop / 訊息…)", systemImage: "square.and.arrow.up")
+            }
+            Button {
+                triggerShare(openPicker: false)
+            } label: {
+                Label("複製 \(provider.displayName) 圖卡到剪貼簿", systemImage: "doc.on.doc")
+            }
+            Divider()
+            Button {
+                onToggleMode()
+            } label: {
+                Label(showRemaining ? "切換為「已用 %」" : "切換為「剩餘 %」", systemImage: "percent")
+            }
+        }
+    }
+
+    @MainActor
+    private func triggerShare(openPicker: Bool) {
+        ShareExporter.shareSingleCard(
+            provider: provider,
+            state: state,
+            showRemaining: showRemaining,
+            openPicker: openPicker
+        )
+        withAnimation(.easeInOut(duration: 0.15)) { copiedToast = true }
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2))
+            withAnimation(.easeInOut(duration: 0.2)) { copiedToast = false }
+        }
+    }
+}
+
+private struct PlanBadgeView: View {
+    let plan: String
+    let color: Color
+
+    var body: some View {
+        Text(plan)
+            .font(.system(size: 9, weight: .bold, design: .rounded))
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
+            .foregroundStyle(color)
+            .padding(.horizontal, 5.5)
+            .padding(.vertical, 1)
+            .background(color.opacity(0.15), in: Capsule())
+            .overlay(Capsule().strokeBorder(color.opacity(0.38), lineWidth: 0.7))
+    }
+}
+
+private struct CardSpendFooterRow: View {
+    let spend: LocalSpendSummary?
+    let extraUsageText: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            if let spend, spend.hasAnyUsage {
+                HStack(spacing: 4.5) {
+                    Image(systemName: "dollarsign.circle.fill")
+                        .font(.system(size: 9.5))
+                        .foregroundStyle(Color(red: 0.35, green: 0.85, blue: 0.62).opacity(0.88))
+                    Text(spendLabel(spend))
+                        .font(.system(size: 9.5, weight: .medium, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundStyle(.white.opacity(0.60))
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                }
+            }
+            if let extra = extraUsageText {
+                HStack(spacing: 4.5) {
+                    Image(systemName: "creditcard.fill")
+                        .font(.system(size: 8.5))
+                        .foregroundStyle(Color(red: 0.56, green: 0.78, blue: 1.0).opacity(0.85))
+                    Text(extra)
+                        .font(.system(size: 9.5, weight: .semibold, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundStyle(Color(red: 0.56, green: 0.78, blue: 1.0))
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                }
+            }
+        }
+        .padding(.top, 1.5)
+        .help("依本機 CLI / IDE 對話紀錄計算之 Token 用量與官方 API 等效美金價值（100% 本機離線統計）")
+    }
+
+    private func spendLabel(_ s: LocalSpendSummary) -> String {
+        let today = String(format: "$%.2f", s.todayCostUSD)
+        let month = String(format: "$%.2f", s.monthCostUSD)
+        let tok = Self.formatTokens(s.monthTokens)
+        return "今日 \(today) · 30天 \(month) (\(tok))"
+    }
+
+    static func formatTokens(_ n: Int) -> String {
+        if n >= 1_000_000_000 {
+            return String(format: "%.2fB tok", Double(n) / 1_000_000_000)
+        } else if n >= 1_000_000 {
+            return String(format: "%.1fM tok", Double(n) / 1_000_000)
+        } else if n >= 1_000 {
+            return String(format: "%.0fK tok", Double(n) / 1_000)
+        }
+        return "\(n) tok"
+    }
+}
+
+@MainActor
+private enum ShareExporter {
+    static func shareSingleCard(
+        provider: ProviderID,
+        state: ProviderState,
+        showRemaining: Bool,
+        openPicker: Bool
+    ) {
+        let view = ShareCardSnapshotView(
+            provider: provider,
+            state: state,
+            showRemaining: showRemaining
+        )
+        renderAndShare(view: view, fileName: "UsageView-\(provider.displayName).png", openPicker: openPicker)
+    }
+
+    static func shareAllCards(store: SnapshotStore, showRemaining: Bool) {
+        let providers = store.panelProviders
+        let view = ShareAllCardsSnapshotView(
+            providers: providers,
+            states: store.states,
+            showRemaining: showRemaining
+        )
+        renderAndShare(view: view, fileName: "UsageView-Overview.png", openPicker: true)
+    }
+
+    private static func renderAndShare<V: View>(view: V, fileName: String, openPicker: Bool) {
+        let renderer = ImageRenderer(content: view)
+        renderer.scale = 2.0
+        guard let nsImage = renderer.nsImage else { return }
+
+        // 1. Always copy to clipboard for instant ⌘V pasting
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.writeObjects([nsImage])
+
+        // 2. Write a named PNG file so AirDrop, Messages, Mail, and Finder receive a proper .png file
+        var shareItems: [Any] = [nsImage]
+        if let tiff = nsImage.tiffRepresentation,
+           let rep = NSBitmapImageRep(data: tiff),
+           let png = rep.representation(using: .png, properties: [:]) {
+            let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
+            if (try? png.write(to: fileURL, options: .atomic)) != nil {
+                shareItems = [fileURL]
+            }
+        }
+
+        // 3. Present native macOS Share menu (`NSSharingServicePicker`) at the current cursor location
+        guard openPicker,
+              let window = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible }),
+              let contentView = window.contentView
+        else { return }
+        let mouseInWindow = window.mouseLocationOutsideOfEventStream
+        let pointInView = contentView.convert(mouseInWindow, from: nil)
+        let anchorRect = NSRect(x: pointInView.x - 8, y: pointInView.y - 8, width: 16, height: 16)
+        let picker = NSSharingServicePicker(items: shareItems)
+        picker.show(relativeTo: anchorRect, of: contentView, preferredEdge: .minY)
+    }
+}
+
+private struct ShareCardSnapshotView: View {
+    let provider: ProviderID
+    let state: ProviderState
+    let showRemaining: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ProviderCardView(
+                provider: provider,
+                state: state,
+                showRemaining: showRemaining,
+                onToggleMode: {},
+                isSnapshotExport: true
+            )
+            HStack {
+                Image(systemName: "waveform.path.ecg")
+                    .font(.system(size: 9.5, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.55))
+                Text("UsageView for macOS · github.com/liaw-boy/UsageView")
+                    .font(.system(size: 9.5, weight: .medium, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.50))
+                Spacer()
+                Text(showRemaining ? "剩餘 %" : "已用 %")
+                    .font(.system(size: 9, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.45))
+            }
+            .padding(.horizontal, 4)
+        }
+        .padding(12)
+        .frame(width: 368)
+        .background(Theme.panelBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.white.opacity(0.16), lineWidth: 1))
+        .padding(8)
+        .background(Color(red: 0.09, green: 0.10, blue: 0.12))
+        .environment(\.colorScheme, .dark)
+    }
+}
+
+private struct ShareAllCardsSnapshotView: View {
+    let providers: [ProviderID]
+    let states: [ProviderID: ProviderState]
+    let showRemaining: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 6) {
+                Image(systemName: "waveform.path.ecg")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.85))
+                Text("UsageView")
+                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                Spacer()
+                Text(showRemaining ? "剩餘 %" : "已用 %")
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.65))
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 2)
+                    .background(Theme.cardBackground, in: Capsule())
+            }
+            .padding(.horizontal, 2)
+
+            ForEach(providers) { id in
+                ProviderCardView(
+                    provider: id,
+                    state: states[id] ?? ProviderState(),
+                    showRemaining: showRemaining,
+                    onToggleMode: {},
+                    isSnapshotExport: true
+                )
+            }
+
+            HStack {
+                Text("github.com/liaw-boy/UsageView")
+                    .font(.system(size: 9.5, weight: .medium, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.45))
+                Spacer()
+            }
+            .padding(.horizontal, 4)
+        }
+        .padding(12)
+        .frame(width: 368)
+        .background(Theme.panelBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.white.opacity(0.16), lineWidth: 1))
+        .padding(8)
+        .background(Color(red: 0.09, green: 0.10, blue: 0.12))
+        .environment(\.colorScheme, .dark)
     }
 }
 
@@ -304,6 +626,9 @@ private struct MetricBarRow: View {
     var body: some View {
         GeometryReader { geo in
             let fillWidth = max(4, geo.size.width * CGFloat(line.usedPercent / 100))
+            let elapsedFraction = line.timeElapsedFraction()
+            let projection = line.projectionText()
+
             ZStack(alignment: .leading) {
                 RoundedRectangle(cornerRadius: 5, style: .continuous)
                     .fill(Color.white.opacity(0.06))
@@ -311,20 +636,55 @@ private struct MetricBarRow: View {
                     .fill(color.opacity(0.35))
                     .frame(width: fillWidth)
 
+                // Feature 1: Even-pace time tick mark showing where current time sits in the window
+                if let elapsed = elapsedFraction {
+                    let tickX = min(max(3, geo.size.width * CGFloat(elapsed)), geo.size.width - 3)
+                    RoundedRectangle(cornerRadius: 1)
+                        .fill(Color.white.opacity(0.72))
+                        .frame(width: 1.5, height: 15)
+                        .shadow(color: .black.opacity(0.6), radius: 1, x: 0, y: 0)
+                        .offset(x: tickX - 0.75)
+                }
+
                 HStack(spacing: 4) {
-                    Text(line.label)
-                        .font(.system(size: 10.5, weight: .medium))
+                    Text(displayLabel)
+                        .font(.system(size: 10.5, weight: .semibold, design: .rounded))
                         .foregroundStyle(.white.opacity(0.92))
-                    Spacer()
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+
+                    if let proj = projection {
+                        Text("· \(proj.text)")
+                            .font(.system(size: 9, weight: .medium, design: .rounded))
+                            .foregroundStyle(
+                                proj.isWarning
+                                    ? Color(red: 1.0, green: 0.65, blue: 0.28)
+                                    : Color.white.opacity(0.50)
+                            )
+                            .lineLimit(1)
+                    }
+
+                    Spacer(minLength: 2)
+
                     Text(trailingText)
                         .font(.system(size: 10, weight: .semibold, design: .rounded))
                         .monospacedDigit()
                         .foregroundStyle(.white.opacity(0.78))
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
                 }
                 .padding(.horizontal, 7)
             }
         }
         .frame(height: 19)
+    }
+
+    private var displayLabel: String {
+        line.label
+            .replacingOccurrences(of: "5 小時", with: "5H")
+            .replacingOccurrences(of: "5h", with: "5H")
+            .replacingOccurrences(of: "每週 · ", with: "")
+            .replacingOccurrences(of: "每週", with: "7D")
     }
 
     private var trailingText: String {
@@ -592,8 +952,8 @@ struct SettingsView: View {
                 Divider().overlay(Color.white.opacity(0.08))
 
                 SettingsToggleRow(
-                    title: "用量超過 80% / 95% 時發送通知",
-                    subtitle: "每個重設週期只提醒一次",
+                    title: "額度警示與滿血重置通知",
+                    subtitle: "超過 80% / 95% 警告，以及額度重置回滿時通知",
                     isOn: $settings.notificationsEnabled
                 )
 
