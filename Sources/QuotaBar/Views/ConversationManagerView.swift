@@ -4,6 +4,7 @@ import SwiftUI
 
 public struct ConversationManagerView: View {
     var onBack: () -> Void
+    @ObservedObject var settings: SettingsStore
 
     @State private var sessions: [ConversationSession] = []
     @State private var stats = ConversationManager.StorageStats()
@@ -20,12 +21,13 @@ public struct ConversationManagerView: View {
     @State private var freedToastText: String? = nil
 
     enum ProviderFilter: Hashable {
-        case all, claude, antigravity
+        case all, claude, codex, antigravity
 
         var title: String {
             switch self {
             case .all: "全部"
             case .claude: "Claude"
+            case .codex: "Codex"
             case .antigravity: "Antigravity"
             }
         }
@@ -40,7 +42,8 @@ public struct ConversationManagerView: View {
         var id: String { rawValue }
     }
 
-    public init(onBack: @escaping () -> Void) {
+    public init(settings: SettingsStore, onBack: @escaping () -> Void) {
+        self.settings = settings
         self.onBack = onBack
     }
 
@@ -162,11 +165,15 @@ public struct ConversationManagerView: View {
                 let total = max(1, stats.totalBytes)
                 let claudeFrac = CGFloat(stats.claudeBytes) / CGFloat(total)
                 let antiFrac = CGFloat(stats.antigravityBytes) / CGFloat(total)
+                let codexFrac = CGFloat(stats.codexBytes) / CGFloat(total)
 
                 HStack(spacing: 2) {
                     RoundedRectangle(cornerRadius: 3)
                         .fill(Theme.brandColor(.claude))
                         .frame(width: max(0, geo.size.width * claudeFrac - 1))
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(Theme.brandColor(.codex))
+                        .frame(width: max(0, geo.size.width * codexFrac - 1))
                     RoundedRectangle(cornerRadius: 3)
                         .fill(Theme.brandColor(.antigravity))
                         .frame(width: max(0, geo.size.width * antiFrac - 1))
@@ -178,14 +185,21 @@ public struct ConversationManagerView: View {
             HStack {
                 HStack(spacing: 4) {
                     Circle().fill(Theme.brandColor(.claude)).frame(width: 6, height: 6)
-                    Text("Claude: \(stats.formattedClaude) (\(stats.claudeCount) 筆)")
+                    Text("Claude \(stats.formattedClaude) · \(stats.claudeCount)")
+                        .font(.system(size: 10, weight: .medium, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.72))
+                }
+                Spacer()
+                HStack(spacing: 4) {
+                    Circle().fill(Theme.brandColor(.codex)).frame(width: 6, height: 6)
+                    Text("Codex \(stats.formattedCodex) · \(stats.codexCount)")
                         .font(.system(size: 10, weight: .medium, design: .rounded))
                         .foregroundStyle(.white.opacity(0.72))
                 }
                 Spacer()
                 HStack(spacing: 4) {
                     Circle().fill(Theme.brandColor(.antigravity)).frame(width: 6, height: 6)
-                    Text("Antigravity: \(stats.formattedAntigravity) (\(stats.antigravityCount) 筆)")
+                    Text("Antigravity \(stats.formattedAntigravity) · \(stats.antigravityCount)")
                         .font(.system(size: 10, weight: .medium, design: .rounded))
                         .foregroundStyle(.white.opacity(0.72))
                 }
@@ -194,7 +208,7 @@ public struct ConversationManagerView: View {
             Divider().overlay(Color.white.opacity(0.08))
 
             HStack {
-                Text("安全保障：刪除的對話將移至 macOS 垃圾桶，可隨時復原。")
+                Text("刪除的對話移至 macOS 垃圾桶，可復原。")
                     .font(.system(size: 9.5))
                     .foregroundStyle(.white.opacity(0.48))
                     .lineLimit(1)
@@ -215,7 +229,24 @@ public struct ConversationManagerView: View {
                     .overlay(Capsule().strokeBorder(Color(red: 0.30, green: 0.88, blue: 0.56).opacity(0.35), lineWidth: 0.8))
                 }
                 .buttonStyle(.plain)
-                .help("將超過 14 天且大於 50MB 的舊對話移至垃圾桶釋放空間")
+                .help("將超過 \(settings.cleanupMinAgeDays) 天且大於 \(settings.cleanupMinSizeMB)MB 的舊對話移至垃圾桶釋放空間")
+
+                Menu {
+                    Picker("超過天數", selection: $settings.cleanupMinAgeDays) {
+                        ForEach(SettingsStore.cleanupAgeOptions, id: \.self) { Text("超過 \($0) 天").tag($0) }
+                    }
+                    Picker("單筆大小", selection: $settings.cleanupMinSizeMB) {
+                        ForEach(SettingsStore.cleanupSizeOptions, id: \.self) { Text("大於 \($0) MB").tag($0) }
+                    }
+                } label: {
+                    Image(systemName: "slider.horizontal.3")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.white.opacity(0.6))
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("調整一鍵清理的條件")
             }
         }
         .padding(.horizontal, 11)
@@ -289,6 +320,7 @@ public struct ConversationManagerView: View {
             HStack(spacing: 4) {
                 filterTab(title: "全部 (\(sessions.count))", filter: .all)
                 filterTab(title: "Claude (\(stats.claudeCount))", filter: .claude)
+                filterTab(title: "Codex (\(stats.codexCount))", filter: .codex)
                 filterTab(title: "Antigravity (\(stats.antigravityCount))", filter: .antigravity)
                 Spacer()
             }
@@ -317,6 +349,7 @@ public struct ConversationManagerView: View {
         switch selectedProvider {
         case .all: break
         case .claude: list = list.filter { $0.provider == .claude }
+        case .codex: list = list.filter { $0.provider == .codex }
         case .antigravity: list = list.filter { $0.provider == .antigravity }
         }
 
@@ -558,14 +591,18 @@ public struct ConversationManagerView: View {
                 let freedStr = formatBytesBrief(freed)
                 await MainActor.run {
                     self.sessions.removeAll { $0.id == session.id }
-                    if session.provider == .claude {
+                    switch session.provider {
+                    case .claude:
                         self.stats.claudeBytes = max(0, self.stats.claudeBytes - freed)
                         self.stats.claudeCount = max(0, self.stats.claudeCount - 1)
-                    } else {
+                    case .codex:
+                        self.stats.codexBytes = max(0, self.stats.codexBytes - freed)
+                        self.stats.codexCount = max(0, self.stats.codexCount - 1)
+                    case .antigravity:
                         self.stats.antigravityBytes = max(0, self.stats.antigravityBytes - freed)
                         self.stats.antigravityCount = max(0, self.stats.antigravityCount - 1)
                     }
-                    self.stats.totalBytes = self.stats.claudeBytes + self.stats.antigravityBytes
+                    self.stats.totalBytes = self.stats.claudeBytes + self.stats.antigravityBytes + self.stats.codexBytes
                     showToast("已移至垃圾桶，釋放 \(freedStr)")
                 }
             } catch {
@@ -576,13 +613,13 @@ public struct ConversationManagerView: View {
     }
 
     private func cleanOldSessionsPrompt() {
-        // Find sessions > 14 days and > 50MB
-        let oldThreshold = Date().addingTimeInterval(-14 * 86400)
-        let candidates = sessions.filter { $0.updatedAt < oldThreshold && $0.totalSizeBytes >= 50 * 1024 * 1024 }
+        let days = settings.cleanupMinAgeDays
+        let mb = settings.cleanupMinSizeMB
+        let candidates = ConversationManager.cleanupCandidates(from: sessions, minAgeDays: days, minSizeMB: mb)
         let totalCandBytes = candidates.reduce(0) { $0 + $1.totalSizeBytes }
 
         guard !candidates.isEmpty else {
-            alertMessage = "目前沒有超過 14 天且大於 50MB 的舊對話，空間狀態健康！"
+            alertMessage = "目前沒有超過 \(days) 天且大於 \(mb)MB 的舊對話，空間狀態健康！"
             showAlert = true
             return
         }
@@ -590,7 +627,7 @@ public struct ConversationManagerView: View {
         let candStr = formatBytesBrief(totalCandBytes)
         let alert = NSAlert()
         alert.messageText = "確定執行一鍵清理並釋放空間？"
-        alert.informativeText = "將把 \(candidates.count) 筆超過 14 天且大於 50MB 的舊對話移至垃圾桶。\n\n預計可釋放 \(candStr) 空間！\n（檔案均移至 macOS 垃圾桶，不會直接抹除，需要時可放回原處）"
+        alert.informativeText = "將把 \(candidates.count) 筆超過 \(days) 天且大於 \(mb)MB 的舊對話移至垃圾桶。\n\n預計可釋放 \(candStr) 空間！\n（檔案均移至 macOS 垃圾桶，不會直接抹除，需要時可放回原處）"
         alert.addButton(withTitle: "移至垃圾桶釋放 \(candStr)")
         alert.addButton(withTitle: "取消")
         alert.alertStyle = .warning

@@ -108,22 +108,41 @@ public struct ConversationSession: Identifiable, Sendable {
 public actor ConversationManager {
     public static let shared = ConversationManager()
 
-    public init() {}
+    private let codexHomeOverride: URL?
+
+    /// `codexHome` is for tests; by default `$CODEX_HOME` (absolute paths only) or `~/.codex` is used.
+    public init(codexHome: URL? = nil) {
+        codexHomeOverride = codexHome
+    }
+
+    /// Sessions the one-tap cleanup may move to the Trash: not updated for `minAgeDays` and at least `minSizeMB` big.
+    public static func cleanupCandidates(from sessions: [ConversationSession], minAgeDays: Int, minSizeMB: Int,
+                                         now: Date = Date()) -> [ConversationSession] {
+        let cutoff = now.addingTimeInterval(-Double(minAgeDays) * 86400)
+        let minBytes = Int64(minSizeMB) * 1024 * 1024
+        return sessions.filter { $0.updatedAt < cutoff && $0.totalSizeBytes >= minBytes }
+    }
 
     public struct StorageStats: Sendable {
         public var totalBytes: Int64 = 0
         public var claudeBytes: Int64 = 0
         public var antigravityBytes: Int64 = 0
+        public var codexBytes: Int64 = 0
         public var claudeCount: Int = 0
         public var antigravityCount: Int = 0
+        public var codexCount: Int = 0
 
         public init(
             totalBytes: Int64 = 0,
             claudeBytes: Int64 = 0,
             antigravityBytes: Int64 = 0,
             claudeCount: Int = 0,
-            antigravityCount: Int = 0
+            antigravityCount: Int = 0,
+            codexBytes: Int64 = 0,
+            codexCount: Int = 0
         ) {
+            self.codexBytes = codexBytes
+            self.codexCount = codexCount
             self.totalBytes = totalBytes
             self.claudeBytes = claudeBytes
             self.antigravityBytes = antigravityBytes
@@ -139,6 +158,9 @@ public actor ConversationManager {
         }
         public var formattedAntigravity: String {
             formatBytes(antigravityBytes)
+        }
+        public var formattedCodex: String {
+            formatBytes(codexBytes)
         }
 
         private func formatBytes(_ b: Int64) -> String {
@@ -175,7 +197,15 @@ public actor ConversationManager {
             stats.antigravityCount += 1
         }
 
-        stats.totalBytes = stats.claudeBytes + stats.antigravityBytes
+        // 3. Codex
+        let codexSessions = scanCodexSessions()
+        sessions.append(contentsOf: codexSessions)
+        for s in codexSessions {
+            stats.codexBytes += s.totalSizeBytes
+            stats.codexCount += 1
+        }
+
+        stats.totalBytes = stats.claudeBytes + stats.antigravityBytes + stats.codexBytes
         return (sessions, stats)
     }
 
@@ -292,7 +322,7 @@ public actor ConversationManager {
     }
 
     private func decodeClaudeProjectName(_ dirName: String) -> String {
-        // e.g. -Users-boywei-project-code-csie-quiz
+        // e.g. -Users-alice-work-demo-app
         var s = dirName
         if s.hasPrefix("-") { s.removeFirst() }
         let parts = s.split(separator: "-").map(String.init)
@@ -319,6 +349,85 @@ public actor ConversationManager {
         guard end > start else { return nil }
         let raw = String(decoding: slice[start..<end], as: UTF8.self)
         return raw.replacingOccurrences(of: "\\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    // MARK: - Codex Scanner
+
+    private func codexHomeURL() -> URL {
+        if let codexHomeOverride { return codexHomeOverride }
+        let env = ProcessInfo.processInfo.environment["CODEX_HOME"].map { ($0 as NSString).expandingTildeInPath }
+        let path = env.flatMap { $0.hasPrefix("/") ? $0 : nil }
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex").path
+        return URL(fileURLWithPath: path, isDirectory: true)
+    }
+
+    /// One session = one rollout `.jsonl` file under `sessions/` or `archived_sessions/`.
+    func scanCodexSessions() -> [ConversationSession] {
+        let fm = FileManager.default
+        let base = codexHomeURL()
+        var results: [ConversationSession] = []
+
+        for root in ["sessions", "archived_sessions"] {
+            let rootURL = base.appendingPathComponent(root, isDirectory: true)
+            guard let enumerator = fm.enumerator(at: rootURL, includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey]) else { continue }
+            for case let file as URL in enumerator where file.pathExtension == "jsonl" {
+                guard let vals = try? file.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey]),
+                      vals.isRegularFile == true
+                else { continue }
+                let mtime = vals.contentModificationDate ?? Date()
+                let meta = readCodexMeta(from: file)
+                let sid = file.deletingPathExtension().lastPathComponent
+                let projPath = meta.cwd ?? ""
+                let projName = (projPath as NSString).lastPathComponent
+                results.append(ConversationSession(
+                    id: sid,
+                    provider: .codex,
+                    projectName: projName.isEmpty ? "Codex" : projName,
+                    projectPath: projPath,
+                    prompt: meta.prompt ?? "對話 \(sid.suffix(8))",
+                    createdAt: meta.createdAt ?? mtime,
+                    updatedAt: mtime,
+                    totalSizeBytes: Int64(vals.fileSize ?? 0),
+                    mainFilePath: file.path
+                ))
+            }
+        }
+        return results
+    }
+
+    /// Reads only the head of the file: working directory, start time and the first user message.
+    private func readCodexMeta(from url: URL) -> (cwd: String?, createdAt: Date?, prompt: String?) {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return (nil, nil, nil) }
+        defer { try? handle.close() }
+        let chunk = handle.readData(ofLength: 256 * 1024)
+        var cwd: String?, createdAt: Date?, prompt: String?
+
+        for line in chunk.split(separator: UInt8(ascii: "\n")) {
+            guard let obj = (try? JSONSerialization.jsonObject(with: Data(line))) as? [String: Any],
+                  let type = obj["type"] as? String,
+                  let payload = obj["payload"] as? [String: Any]
+            else { continue }
+
+            if type == "session_meta" {
+                cwd = cwd ?? payload["cwd"] as? String
+                createdAt = createdAt ?? Parse.date(payload["timestamp"] ?? obj["timestamp"])
+            } else if prompt == nil, type == "event_msg", payload["type"] as? String == "user_message",
+                      let msg = payload["message"] as? String {
+                prompt = Self.cleanPrompt(msg)
+            } else if prompt == nil, type == "response_item", payload["role"] as? String == "user",
+                      let parts = payload["content"] as? [[String: Any]] {
+                let text = parts.compactMap { $0["text"] as? String }.joined(separator: " ")
+                // Skip injected context blocks (environment / instructions), keep real user text.
+                if !text.hasPrefix("<") { prompt = Self.cleanPrompt(text) }
+            }
+            if cwd != nil, createdAt != nil, prompt != nil { break }
+        }
+        return (cwd, createdAt, prompt)
+    }
+
+    private static func cleanPrompt(_ raw: String) -> String? {
+        let t = raw.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        return t.isEmpty ? nil : String(t.prefix(200))
     }
 
     // MARK: - Antigravity Scanner
@@ -371,7 +480,8 @@ public actor ConversationManager {
             // Read first prompt and true last timestamp from transcript
             var prompt = ""
             var trueLastDate: Date? = nil
-            let projectPath = "/Users/boywei/project_code"
+            // Antigravity transcripts carry no project path, so leave it empty.
+            let projectPath = ""
             let transcriptURL = brainDir.appendingPathComponent(".system_generated/logs/transcript.jsonl")
 
             if let tData = try? Data(contentsOf: transcriptURL) {

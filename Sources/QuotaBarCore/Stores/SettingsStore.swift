@@ -100,6 +100,17 @@ public final class SettingsStore: ObservableObject {
         didSet { defaults.set(carouselSeconds, forKey: "carouselSeconds") }
     }
 
+    /// 「釋放空間」一鍵清理條件：最後更新超過 N 天，且單筆對話至少 N MB。
+    @Published public var cleanupMinAgeDays: Int {
+        didSet { defaults.set(cleanupMinAgeDays, forKey: "cleanupMinAgeDays") }
+    }
+    @Published public var cleanupMinSizeMB: Int {
+        didSet { defaults.set(cleanupMinSizeMB, forKey: "cleanupMinSizeMB") }
+    }
+
+    public static let cleanupAgeOptions = [7, 14, 30, 60, 90]
+    public static let cleanupSizeOptions = [10, 50, 100, 500, 1000]
+
     public static let refreshOptions = [2, 5, 10, 15, 30]
     public static let minimumRefreshMinutes = 2
 
@@ -115,6 +126,10 @@ public final class SettingsStore: ObservableObject {
         menuBarIconStyle = MenuBarIconStyle(rawValue: defaults.string(forKey: "menuBarIconStyle") ?? "") ?? .logo
         panelDisplayMode = MultiProviderDisplayMode(rawValue: defaults.string(forKey: "panelDisplayMode") ?? "") ?? .all
         selectedSingleProvider = ProviderID(rawValue: defaults.string(forKey: "selectedSingleProvider") ?? "") ?? .claude
+        let age = defaults.integer(forKey: "cleanupMinAgeDays")
+        cleanupMinAgeDays = age == 0 ? 14 : min(max(age, 1), 365)
+        let size = defaults.integer(forKey: "cleanupMinSizeMB")
+        cleanupMinSizeMB = size == 0 ? 50 : min(max(size, 1), 5000)
         let cs = defaults.integer(forKey: "carouselSeconds")
         carouselSeconds = cs > 0 ? cs : 4
 

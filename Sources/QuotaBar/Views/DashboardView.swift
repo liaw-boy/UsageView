@@ -15,21 +15,9 @@ struct DashboardView: View {
                     header
                     SettingsView(settings: settings, updater: updater)
                     footer
-                } else if controller.showingAccounts {
-                    AccountManagerView(
-                        onBack: {
-                            withAnimation(.easeInOut(duration: 0.16)) {
-                                controller.showingAccounts = false
-                            }
-                        },
-                        onSwitched: {
-                            Task {
-                                await store.refresh(manual: true)
-                            }
-                        }
-                    )
                 } else if controller.showingConversations {
                     ConversationManagerView(
+                        settings: settings,
                         onBack: {
                             withAnimation(.easeInOut(duration: 0.16)) {
                                 controller.showingConversations = false
@@ -269,26 +257,6 @@ struct DashboardView: View {
                 }
                 .buttonStyle(.plain)
                 .help("管理本地對話紀錄與釋放硬碟空間")
-
-                Button {
-                    withAnimation(.easeInOut(duration: 0.16)) { controller.showingAccounts.toggle() }
-                } label: {
-                    HStack(spacing: 3) {
-                        Image(systemName: "person.crop.circle")
-                            .font(.system(size: 10))
-                        Text("帳號")
-                            .font(.system(size: 11, weight: .semibold, design: .rounded))
-                            .lineLimit(1)
-                            .fixedSize(horizontal: true, vertical: false)
-                    }
-                    .foregroundStyle(.white.opacity(0.85))
-                    .padding(.horizontal, 7.5)
-                    .padding(.vertical, 4)
-                    .background(Theme.cardBackground, in: Capsule())
-                    .overlay(Capsule().strokeBorder(Theme.cardBorder, lineWidth: 1))
-                }
-                .buttonStyle(.plain)
-                .help("管理與切換多個 AI 帳號 Profile")
 
                 Button {
                     ShareExporter.shareAllCards(store: store, showRemaining: settings.showRemaining)
@@ -817,11 +785,27 @@ private struct MetricBarRow: View {
         let pct = Theme.formattedPercent(line.usedPercent, showRemaining: showRemaining)
         if line.isNotStarted { return "\(pct) · 可用" }
         guard let reset = line.resetsAt else { return pct }
+        if showDetail { return "\(pct) · \(Self.exactResetText(reset))" }
         let secs = max(0, Int(reset.timeIntervalSinceNow))
         let h = secs / 3600
         let m = (secs % 3600) / 60
         let rel = h >= 24 ? "\(h / 24)d \(h % 24)h" : (h > 0 ? "\(h)h \(m)m" : "\(m)m")
         return "\(pct) · \(rel)"
+    }
+
+    /// Exact reset moment shown while the card is hovered: "今天 21:35", "明天 03:10" or "06/12 21:35".
+    static func exactResetText(_ reset: Date, now: Date = Date(), calendar: Calendar = .current) -> String {
+        let time = DateFormatter()
+        time.calendar = calendar
+        time.dateFormat = "HH:mm"
+        if calendar.isDate(reset, inSameDayAs: now) { return "今天 \(time.string(from: reset))" }
+        if let tomorrow = calendar.date(byAdding: .day, value: 1, to: now), calendar.isDate(reset, inSameDayAs: tomorrow) {
+            return "明天 \(time.string(from: reset))"
+        }
+        let full = DateFormatter()
+        full.calendar = calendar
+        full.dateFormat = "MM/dd HH:mm"
+        return full.string(from: reset)
     }
 
     private var tooltipText: String {
