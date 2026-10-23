@@ -17,6 +17,7 @@ final class StatusItemController: NSObject, ObservableObject, NSPopoverDelegate 
     @Published var showingSettings = false
     @Published var showingStats = false
     @Published var showingConversations = false
+    @Published var showingAccounts = false
     @Published var statsProvider: ProviderID? = nil
 
     init(store: SnapshotStore, settings: SettingsStore, updater: UpdateService) {
@@ -50,7 +51,7 @@ final class StatusItemController: NSObject, ObservableObject, NSPopoverDelegate 
             }
             .store(in: &cancellables)
 
-        Publishers.Merge3($showingSettings, $showingStats, $showingConversations)
+        Publishers.Merge4($showingSettings, $showingStats, $showingConversations, $showingAccounts)
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 self?.syncPopoverSize()
@@ -115,11 +116,15 @@ final class StatusItemController: NSObject, ObservableObject, NSPopoverDelegate 
             popover.performClose(nil)
             showingSettings = false
             showingStats = false
+            showingConversations = false
+            showingAccounts = false
             statsProvider = nil
             stopMonitoringOutsideClicks()
         } else {
             showingSettings = false
             showingStats = false
+            showingConversations = false
+            showingAccounts = false
             statsProvider = nil
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             popover.contentViewController?.view.window?.makeKey()
@@ -132,6 +137,7 @@ final class StatusItemController: NSObject, ObservableObject, NSPopoverDelegate 
         showingSettings = false
         showingStats = false
         showingConversations = false
+        showingAccounts = false
         statsProvider = nil
         stopMonitoringOutsideClicks()
     }
@@ -149,6 +155,10 @@ final class StatusItemController: NSObject, ObservableObject, NSPopoverDelegate 
         let settingsItem = NSMenuItem(title: "設定…", action: #selector(menuSettings), keyEquivalent: ",")
         settingsItem.target = self
         menu.addItem(settingsItem)
+
+        let accountItem = NSMenuItem(title: "帳號切換與管理…", action: #selector(menuAccounts), keyEquivalent: "a")
+        accountItem.target = self
+        menu.addItem(accountItem)
 
         let convItem = NSMenuItem(title: "對話紀錄與空間管理…", action: #selector(menuConversations), keyEquivalent: "m")
         convItem.target = self
@@ -183,6 +193,13 @@ final class StatusItemController: NSObject, ObservableObject, NSPopoverDelegate 
         }
     }
 
+    @objc private func menuAccounts() {
+        showingAccounts = true
+        if let button = statusItem.button, !popover.isShown {
+            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        }
+    }
+
     @objc private func menuConversations() {
         showingConversations = true
         if let button = statusItem.button, !popover.isShown {
@@ -202,6 +219,7 @@ final class StatusItemController: NSObject, ObservableObject, NSPopoverDelegate 
                 self?.showingSettings = false
                 self?.showingStats = false
                 self?.showingConversations = false
+                self?.showingAccounts = false
                 self?.statsProvider = nil
                 self?.stopMonitoringOutsideClicks()
             }

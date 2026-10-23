@@ -15,6 +15,19 @@ struct DashboardView: View {
                     header
                     SettingsView(settings: settings, updater: updater)
                     footer
+                } else if controller.showingAccounts {
+                    AccountManagerView(
+                        onBack: {
+                            withAnimation(.easeInOut(duration: 0.16)) {
+                                controller.showingAccounts = false
+                            }
+                        },
+                        onSwitched: {
+                            Task {
+                                await store.refresh(manual: true)
+                            }
+                        }
+                    )
                 } else if controller.showingConversations {
                     ConversationManagerView(
                         onBack: {
@@ -256,6 +269,26 @@ struct DashboardView: View {
                 }
                 .buttonStyle(.plain)
                 .help("管理本地對話紀錄與釋放硬碟空間")
+
+                Button {
+                    withAnimation(.easeInOut(duration: 0.16)) { controller.showingAccounts.toggle() }
+                } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: "person.crop.circle")
+                            .font(.system(size: 10))
+                        Text("帳號")
+                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
+                    .foregroundStyle(.white.opacity(0.85))
+                    .padding(.horizontal, 7.5)
+                    .padding(.vertical, 4)
+                    .background(Theme.cardBackground, in: Capsule())
+                    .overlay(Capsule().strokeBorder(Theme.cardBorder, lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .help("管理與切換多個 AI 帳號 Profile")
 
                 Button {
                     ShareExporter.shareAllCards(store: store, showRemaining: settings.showRemaining)
