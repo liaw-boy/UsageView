@@ -53,7 +53,7 @@ public actor LocalUsageScanner {
     private var fileCache: [String: CachedFile] = [:]
     private var loadedDiskCache = false
     private let diskCacheURL: URL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("QuotaBar/local-spend-cache-v1.json")
+        .appendingPathComponent("QuotaBar/local-spend-cache-v2.json")
 
     public init() {}
 
@@ -537,9 +537,17 @@ public actor LocalUsageScanner {
     }
 
     private static func runSQLite(path: String, sql: String) -> String? {
+        // A WAL-mode DB with no -shm file cannot be opened with plain -readonly (idle CLI sessions),
+        // so fall back to a read-only immutable snapshot, which needs no side files.
+        if let out = execSQLite(target: path, sql: sql) { return out }
+        guard let encoded = path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else { return nil }
+        return execSQLite(target: "file:\(encoded)?immutable=1", sql: sql)
+    }
+
+    private static func execSQLite(target: String, sql: String) -> String? {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/sqlite3")
-        p.arguments = ["-readonly", "-batch", "-noheader", path, sql]
+        p.arguments = ["-readonly", "-batch", "-noheader", target, sql]
         let out = Pipe()
         p.standardOutput = out
         p.standardError = Pipe()
