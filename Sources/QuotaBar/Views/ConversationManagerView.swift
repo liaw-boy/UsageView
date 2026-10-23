@@ -392,19 +392,20 @@ public struct ConversationManagerView: View {
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
 
-            HStack(spacing: 5.5) {
+            HStack(spacing: 5) {
                 Button {
                     openPreview(session)
                 } label: {
-                    HStack(spacing: 3) {
+                    HStack(alignment: .center, spacing: 3.5) {
                         Image(systemName: "eye.fill")
                             .font(.system(size: 9.5, weight: .semibold))
+                            .offset(y: 0.2)
                         Text("預覽")
                             .font(.system(size: 10.5, weight: .semibold, design: .rounded))
                     }
                     .foregroundStyle(.white.opacity(0.85))
                     .padding(.horizontal, 8.5)
-                    .padding(.vertical, 3.5)
+                    .frame(height: 24)
                     .background(Color.white.opacity(0.09), in: Capsule())
                     .overlay(Capsule().strokeBorder(Color.white.opacity(0.14), lineWidth: 0.8))
                 }
@@ -413,15 +414,16 @@ public struct ConversationManagerView: View {
                 Button {
                     revealInFinder(session)
                 } label: {
-                    HStack(spacing: 3) {
+                    HStack(alignment: .center, spacing: 3.5) {
                         Image(systemName: "folder.fill")
                             .font(.system(size: 9.5, weight: .semibold))
+                            .offset(y: 0.1)
                         Text("Finder")
                             .font(.system(size: 10.5, weight: .semibold, design: .rounded))
                     }
                     .foregroundStyle(.white.opacity(0.85))
                     .padding(.horizontal, 8.5)
-                    .padding(.vertical, 3.5)
+                    .frame(height: 24)
                     .background(Color.white.opacity(0.09), in: Capsule())
                     .overlay(Capsule().strokeBorder(Color.white.opacity(0.14), lineWidth: 0.8))
                 }
@@ -431,15 +433,16 @@ public struct ConversationManagerView: View {
                 Button {
                     exportMarkdown(session)
                 } label: {
-                    HStack(spacing: 3) {
+                    HStack(alignment: .center, spacing: 3.5) {
                         Image(systemName: "square.and.arrow.up")
                             .font(.system(size: 9.5, weight: .semibold))
+                            .offset(y: -0.6)
                         Text("匯出")
                             .font(.system(size: 10.5, weight: .semibold, design: .rounded))
                     }
                     .foregroundStyle(.white.opacity(0.85))
                     .padding(.horizontal, 8.5)
-                    .padding(.vertical, 3.5)
+                    .frame(height: 24)
                     .background(Color.white.opacity(0.09), in: Capsule())
                     .overlay(Capsule().strokeBorder(Color.white.opacity(0.14), lineWidth: 0.8))
                 }
@@ -451,15 +454,16 @@ public struct ConversationManagerView: View {
                 Button {
                     trashSession(session)
                 } label: {
-                    HStack(spacing: 3) {
+                    HStack(alignment: .center, spacing: 3.5) {
                         Image(systemName: "trash.fill")
                             .font(.system(size: 9.5, weight: .semibold))
+                            .offset(y: -0.2)
                         Text("丟入垃圾桶")
                             .font(.system(size: 10.5, weight: .bold, design: .rounded))
                     }
                     .foregroundStyle(Color(red: 0.98, green: 0.38, blue: 0.42))
                     .padding(.horizontal, 8.5)
-                    .padding(.vertical, 3.5)
+                    .frame(height: 24)
                     .background(Color(red: 0.98, green: 0.38, blue: 0.42).opacity(0.14), in: Capsule())
                     .overlay(Capsule().strokeBorder(Color(red: 0.98, green: 0.38, blue: 0.42).opacity(0.35), lineWidth: 0.8))
                 }
