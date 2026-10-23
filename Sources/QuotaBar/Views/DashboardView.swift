@@ -507,10 +507,20 @@ private struct CardSpendFooterRow: View {
     }
 
     private func spendLabel(_ s: LocalSpendSummary) -> String {
-        let today = String(format: "$%.2f", s.todayCostUSD)
-        let week = String(format: "$%.2f", s.weekCostUSD)
-        let month = String(format: "$%.2f", s.monthCostUSD)
+        let today = formatCostBrief(s.todayCostUSD)
+        let week = formatCostBrief(s.weekCostUSD)
+        let month = formatCostBrief(s.monthCostUSD)
         return "今日 \(today) · 7D \(week) · 30D \(month)"
+    }
+
+    private func formatCostBrief(_ cost: Double) -> String {
+        if cost >= 1_000_000 {
+            return String(format: "$%.2fM", cost / 1_000_000)
+        } else if cost >= 1_000 {
+            return String(format: "$%.2fK", cost / 1_000)
+        } else {
+            return String(format: "$%.2f", cost)
+        }
     }
 
     static func formatTokens(_ n: Int) -> String {

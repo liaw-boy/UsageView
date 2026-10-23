@@ -350,61 +350,64 @@ public struct UsageStatisticsView: View {
             .padding(.horizontal, 2)
 
             let maxCost = models.map { periodCost($0, period: modelPeriod) }.max() ?? 1.0
+            let sortedModels = models.sorted {
+                let cost0 = periodCost($0, period: modelPeriod)
+                let cost1 = periodCost($1, period: modelPeriod)
+                if cost0 != cost1 { return cost0 > cost1 }
+                return periodTokens($0, period: modelPeriod) > periodTokens($1, period: modelPeriod)
+            }
 
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 7) {
-                    if models.isEmpty {
-                        Text("此期間無模型紀錄")
-                            .font(.system(size: 11, design: .rounded))
-                            .foregroundStyle(.white.opacity(0.40))
-                            .frame(maxWidth: .infinity, minHeight: 90, alignment: .center)
-                    } else {
-                        ForEach(models) { m in
-                            let cost = periodCost(m, period: modelPeriod)
-                            let tok = periodTokens(m, period: modelPeriod)
-                            let fraction = maxCost > 0 ? min(1.0, max(0.04, cost / maxCost)) : 0.04
+            VStack(spacing: 7) {
+                if sortedModels.isEmpty {
+                    Text("此期間無模型紀錄")
+                        .font(.system(size: 11, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.40))
+                        .frame(maxWidth: .infinity, minHeight: 40, alignment: .center)
+                } else {
+                    ForEach(sortedModels) { m in
+                        let cost = periodCost(m, period: modelPeriod)
+                        let tok = periodTokens(m, period: modelPeriod)
+                        let fraction = maxCost > 0 ? min(1.0, max(0.04, cost / maxCost)) : 0.04
 
-                            VStack(alignment: .leading, spacing: 2.5) {
-                                HStack {
-                                    Text(m.model)
-                                        .font(.system(size: 11.5, weight: .semibold, design: .rounded))
-                                        .foregroundStyle(.white.opacity(0.92))
-                                        .lineLimit(1)
-                                    Spacer(minLength: 4)
-                                    Text(formatTokens(tok))
-                                        .font(.system(size: 11, weight: .medium, design: .rounded))
-                                        .foregroundStyle(.white.opacity(0.65))
-                                        .monospacedDigit()
-                                        .lineLimit(1)
-                                    Text(formatCostCompact(cost))
-                                        .font(.system(size: 11.5, weight: .bold, design: .rounded))
-                                        .foregroundStyle(Color(red: 0.35, green: 0.88, blue: 0.62))
-                                        .monospacedDigit()
-                                        .lineLimit(1)
-                                        .frame(minWidth: 54, alignment: .trailing)
-                                        .help(String(format: "$%.2f (約 NT$%d)", cost, Int((cost * 32.2).rounded())))
-                                }
-
-                                // Visual share bar
-                                GeometryReader { proxy in
-                                    ZStack(alignment: .leading) {
-                                        RoundedRectangle(cornerRadius: 2)
-                                            .fill(Color.white.opacity(0.08))
-                                            .frame(height: 4)
-                                        RoundedRectangle(cornerRadius: 2)
-                                            .fill(Color(red: 0.35, green: 0.88, blue: 0.62).opacity(0.78))
-                                            .frame(width: proxy.size.width * fraction, height: 4)
-                                    }
-                                }
-                                .frame(height: 4)
+                        VStack(alignment: .leading, spacing: 2.5) {
+                            HStack {
+                                Text(m.model)
+                                    .font(.system(size: 11.5, weight: .semibold, design: .rounded))
+                                    .foregroundStyle(.white.opacity(0.92))
+                                    .lineLimit(1)
+                                Spacer(minLength: 4)
+                                Text(formatTokens(tok))
+                                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                                    .foregroundStyle(.white.opacity(0.65))
+                                    .monospacedDigit()
+                                    .lineLimit(1)
+                                Text(formatCostCompact(cost))
+                                    .font(.system(size: 11.5, weight: .bold, design: .rounded))
+                                    .foregroundStyle(Color(red: 0.35, green: 0.88, blue: 0.62))
+                                    .monospacedDigit()
+                                    .lineLimit(1)
+                                    .frame(minWidth: 54, alignment: .trailing)
+                                    .help(String(format: "$%.2f (約 NT$%d)", cost, Int((cost * 32.2).rounded())))
                             }
-                            .padding(.vertical, 2.5)
+
+                            // Visual share bar
+                            GeometryReader { proxy in
+                                ZStack(alignment: .leading) {
+                                    RoundedRectangle(cornerRadius: 2)
+                                        .fill(Color.white.opacity(0.08))
+                                        .frame(height: 4)
+                                    RoundedRectangle(cornerRadius: 2)
+                                        .fill(Color(red: 0.35, green: 0.88, blue: 0.62).opacity(0.78))
+                                        .frame(width: proxy.size.width * fraction, height: 4)
+                                }
+                            }
+                            .frame(height: 4)
                         }
+                        .padding(.vertical, 2.5)
                     }
                 }
-                .padding(9.5)
             }
-            .frame(height: 122)
+            .padding(9.5)
             .background(Theme.cardBackground)
             .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Theme.cardBorder, lineWidth: 0.8))
