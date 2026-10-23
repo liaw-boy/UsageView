@@ -8,9 +8,6 @@ struct DashboardView: View {
     @ObservedObject var updater: UpdateService
     @ObservedObject var controller: StatusItemController
 
-    @State private var showingStats = false
-    @State private var statsProvider: ProviderID? = nil
-
     var body: some View {
         TimelineView(.periodic(from: .now, by: 15)) { _ in
             VStack(spacing: 6) {
@@ -18,13 +15,13 @@ struct DashboardView: View {
                     header
                     SettingsView(settings: settings, updater: updater)
                     footer
-                } else if showingStats {
+                } else if controller.showingStats {
                     UsageStatisticsView(
                         store: store,
-                        initialProvider: statsProvider,
+                        initialProvider: controller.statsProvider,
                         onBack: {
                             withAnimation(.easeInOut(duration: 0.16)) {
-                                showingStats = false
+                                controller.showingStats = false
                             }
                         }
                     )
@@ -40,9 +37,6 @@ struct DashboardView: View {
             .fixedSize(horizontal: true, vertical: true)
             .background(Theme.panelBackground)
             .environment(\.colorScheme, .dark)
-            .onChange(of: showingStats) {
-                controller.syncPopoverSize()
-            }
         }
     }
 
@@ -112,8 +106,8 @@ struct DashboardView: View {
             .help("點擊切換「已用 %」與「剩餘 %」")
 
             Button {
-                statsProvider = nil
-                withAnimation(.easeInOut(duration: 0.16)) { showingStats = true }
+                controller.statsProvider = nil
+                withAnimation(.easeInOut(duration: 0.16)) { controller.showingStats = true }
             } label: {
                 Image(systemName: "chart.bar.xaxis")
                     .font(.system(size: 11, weight: .semibold))
@@ -192,8 +186,8 @@ struct DashboardView: View {
                         showRemaining: settings.showRemaining,
                         onToggleMode: { settings.showRemaining.toggle() },
                         onOpenStats: {
-                            statsProvider = id
-                            withAnimation(.easeInOut(duration: 0.16)) { showingStats = true }
+                            controller.statsProvider = id
+                            withAnimation(.easeInOut(duration: 0.16)) { controller.showingStats = true }
                         }
                     )
                 }
@@ -227,8 +221,8 @@ struct DashboardView: View {
 
             if !controller.showingSettings && !store.panelProviders.isEmpty {
                 Button {
-                    statsProvider = nil
-                    withAnimation(.easeInOut(duration: 0.16)) { showingStats.toggle() }
+                    controller.statsProvider = nil
+                    withAnimation(.easeInOut(duration: 0.16)) { controller.showingStats.toggle() }
                 } label: {
                     HStack(spacing: 3.5) {
                         Image(systemName: "chart.bar.xaxis")

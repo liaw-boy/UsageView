@@ -6,7 +6,7 @@ import SwiftUI
 /// AppKit status item + auto-sizing floating panel.
 /// Left-click toggles the popover; right-click opens the quick context menu (Refresh / Check Updates / Settings / Quit).
 @MainActor
-final class StatusItemController: NSObject, ObservableObject {
+final class StatusItemController: NSObject, ObservableObject, NSPopoverDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let popover = NSPopover()
     private let store: SnapshotStore
@@ -15,6 +15,8 @@ final class StatusItemController: NSObject, ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var eventMonitor: Any?
     @Published var showingSettings = false
+    @Published var showingStats = false
+    @Published var statsProvider: ProviderID? = nil
 
     init(store: SnapshotStore, settings: SettingsStore, updater: UpdateService) {
         self.store = store
@@ -24,6 +26,7 @@ final class StatusItemController: NSObject, ObservableObject {
 
         popover.behavior = .transient
         popover.animates = true
+        popover.delegate = self
         let hosting = NSHostingController(
             rootView: DashboardView(store: store, settings: settings, updater: updater, controller: self)
         )
@@ -46,7 +49,7 @@ final class StatusItemController: NSObject, ObservableObject {
             }
             .store(in: &cancellables)
 
-        $showingSettings
+        Publishers.Merge($showingSettings, $showingStats)
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 self?.syncPopoverSize()
@@ -107,14 +110,26 @@ final class StatusItemController: NSObject, ObservableObject {
     private func togglePopover(from button: NSStatusBarButton) {
         if popover.isShown {
             popover.performClose(nil)
+            showingSettings = false
+            showingStats = false
+            statsProvider = nil
             stopMonitoringOutsideClicks()
         } else {
             showingSettings = false
+            showingStats = false
+            statsProvider = nil
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             popover.contentViewController?.view.window?.makeKey()
             syncPopoverSize()
             startMonitoringOutsideClicks()
         }
+    }
+
+    func popoverDidClose(_ notification: Notification) {
+        showingSettings = false
+        showingStats = false
+        statsProvider = nil
+        stopMonitoringOutsideClicks()
     }
 
     private func showContextMenu(from button: NSStatusBarButton) {
@@ -169,6 +184,9 @@ final class StatusItemController: NSObject, ObservableObject {
         eventMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
             Task { @MainActor in
                 self?.popover.performClose(nil)
+                self?.showingSettings = false
+                self?.showingStats = false
+                self?.statsProvider = nil
                 self?.stopMonitoringOutsideClicks()
             }
         }
