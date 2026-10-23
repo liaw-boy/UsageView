@@ -31,8 +31,11 @@ public struct ConversationManagerView: View {
     }
 
     enum SortOption: String, CaseIterable, Identifiable {
-        case sizeDesc = "依容量大小"
-        case dateDesc = "依更新時間"
+        case sizeDesc = "容量：大到小"
+        case sizeAsc  = "容量：小到大"
+        case dateDesc = "時間：新到舊"
+        case dateAsc  = "時間：舊到新"
+
         var id: String { rawValue }
     }
 
@@ -241,26 +244,34 @@ public struct ConversationManagerView: View {
 
                 Menu {
                     ForEach(SortOption.allCases) { opt in
-                        Button(opt.rawValue) { sortOption = opt }
+                        Button {
+                            sortOption = opt
+                        } label: {
+                            HStack {
+                                Text(opt.rawValue)
+                                if sortOption == opt {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
                     }
                 } label: {
-                    HStack(spacing: 3) {
+                    HStack(spacing: 3.5) {
                         Text(sortOption.rawValue)
-                            .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                            .font(.system(size: 11, weight: .semibold, design: .rounded))
                             .lineLimit(1)
                             .fixedSize()
                         Image(systemName: "chevron.down")
-                            .font(.system(size: 7.5, weight: .bold))
+                            .font(.system(size: 8, weight: .bold))
                             .foregroundStyle(.white.opacity(0.60))
                     }
-                    .foregroundStyle(.white.opacity(0.85))
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 4.5)
-                    .background(Theme.cardBackground, in: RoundedRectangle(cornerRadius: 7))
-                    .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Theme.cardBorder, lineWidth: 1))
+                    .foregroundStyle(.white.opacity(0.90))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .background(Theme.cardBackground, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).strokeBorder(Theme.cardBorder, lineWidth: 1))
                 }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
+                .buttonStyle(.plain)
                 .fixedSize()
             }
 
@@ -310,8 +321,12 @@ public struct ConversationManagerView: View {
         switch sortOption {
         case .sizeDesc:
             list.sort { $0.totalSizeBytes > $1.totalSizeBytes }
+        case .sizeAsc:
+            list.sort { $0.totalSizeBytes < $1.totalSizeBytes }
         case .dateDesc:
             list.sort { $0.updatedAt > $1.updatedAt }
+        case .dateAsc:
+            list.sort { $0.updatedAt < $1.updatedAt }
         }
 
         return list
@@ -349,63 +364,66 @@ public struct ConversationManagerView: View {
                 .padding(.bottom, 6)
             }
         }
-        .frame(height: 290)
+        .frame(height: 315)
     }
 
     private func sessionRow(_ session: ConversationSession) -> some View {
-        VStack(alignment: .leading, spacing: 4.5) {
-            HStack(spacing: 5) {
-                ProviderLogoView(provider: session.provider, size: 12.5, tinted: true)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                ProviderLogoView(provider: session.provider, size: 14, tinted: true)
                 Text(session.projectName)
-                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .font(.system(size: 12.5, weight: .bold, design: .rounded))
                     .foregroundStyle(Theme.brandColor(session.provider))
                     .lineLimit(1)
 
-                Spacer(minLength: 2)
+                Spacer(minLength: 4)
 
                 Text(session.formattedRelativeTime)
-                    .font(.system(size: 9.5, weight: .medium, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.48))
+                    .font(.system(size: 10.5, weight: .medium, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.50))
 
                 sizeBadge(session.totalSizeBytes, label: session.formattedSize)
             }
 
             Text(session.prompt)
-                .font(.system(size: 11, weight: .regular))
-                .foregroundStyle(.white.opacity(0.90))
+                .font(.system(size: 12.5, weight: .regular))
+                .lineSpacing(2.5)
+                .foregroundStyle(.white.opacity(0.92))
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
 
-            HStack(spacing: 4) {
+            HStack(spacing: 5.5) {
                 Button {
                     openPreview(session)
                 } label: {
-                    HStack(spacing: 2.5) {
+                    HStack(spacing: 3) {
                         Image(systemName: "eye.fill")
-                            .font(.system(size: 8.5))
+                            .font(.system(size: 9.5, weight: .semibold))
                         Text("預覽")
-                            .font(.system(size: 9.5, weight: .semibold, design: .rounded))
+                            .font(.system(size: 10.5, weight: .semibold, design: .rounded))
                     }
-                    .foregroundStyle(.white.opacity(0.75))
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 4))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .padding(.horizontal, 8.5)
+                    .padding(.vertical, 3.5)
+                    .background(Color.white.opacity(0.09), in: Capsule())
+                    .overlay(Capsule().strokeBorder(Color.white.opacity(0.14), lineWidth: 0.8))
                 }
                 .buttonStyle(.plain)
 
                 Button {
                     revealInFinder(session)
                 } label: {
-                    HStack(spacing: 2.5) {
+                    HStack(spacing: 3) {
                         Image(systemName: "folder.fill")
-                            .font(.system(size: 8.5))
+                            .font(.system(size: 9.5, weight: .semibold))
                         Text("訪達")
-                            .font(.system(size: 9.5, weight: .semibold, design: .rounded))
+                            .font(.system(size: 10.5, weight: .semibold, design: .rounded))
                     }
-                    .foregroundStyle(.white.opacity(0.75))
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 4))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .padding(.horizontal, 8.5)
+                    .padding(.vertical, 3.5)
+                    .background(Color.white.opacity(0.09), in: Capsule())
+                    .overlay(Capsule().strokeBorder(Color.white.opacity(0.14), lineWidth: 0.8))
                 }
                 .buttonStyle(.plain)
                 .help("在 macOS Finder 中顯示檔案")
@@ -413,16 +431,17 @@ public struct ConversationManagerView: View {
                 Button {
                     exportMarkdown(session)
                 } label: {
-                    HStack(spacing: 2.5) {
+                    HStack(spacing: 3) {
                         Image(systemName: "square.and.arrow.up")
-                            .font(.system(size: 8.5))
+                            .font(.system(size: 9.5, weight: .semibold))
                         Text("匯出")
-                            .font(.system(size: 9.5, weight: .semibold, design: .rounded))
+                            .font(.system(size: 10.5, weight: .semibold, design: .rounded))
                     }
-                    .foregroundStyle(.white.opacity(0.75))
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 4))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .padding(.horizontal, 8.5)
+                    .padding(.vertical, 3.5)
+                    .background(Color.white.opacity(0.09), in: Capsule())
+                    .overlay(Capsule().strokeBorder(Color.white.opacity(0.14), lineWidth: 0.8))
                 }
                 .buttonStyle(.plain)
                 .help("將此對話匯出為 Markdown 格式文件")
@@ -432,40 +451,41 @@ public struct ConversationManagerView: View {
                 Button {
                     trashSession(session)
                 } label: {
-                    HStack(spacing: 2.5) {
+                    HStack(spacing: 3) {
                         Image(systemName: "trash.fill")
-                            .font(.system(size: 8.5))
+                            .font(.system(size: 9.5, weight: .semibold))
                         Text("丟入垃圾桶")
-                            .font(.system(size: 9.5, weight: .bold, design: .rounded))
+                            .font(.system(size: 10.5, weight: .bold, design: .rounded))
                     }
                     .foregroundStyle(Color(red: 0.98, green: 0.38, blue: 0.42))
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Color(red: 0.98, green: 0.38, blue: 0.42).opacity(0.14), in: RoundedRectangle(cornerRadius: 4))
+                    .padding(.horizontal, 8.5)
+                    .padding(.vertical, 3.5)
+                    .background(Color(red: 0.98, green: 0.38, blue: 0.42).opacity(0.14), in: Capsule())
+                    .overlay(Capsule().strokeBorder(Color(red: 0.98, green: 0.38, blue: 0.42).opacity(0.35), lineWidth: 0.8))
                 }
                 .buttonStyle(.plain)
                 .help("移至 macOS 垃圾桶，可安全復原")
             }
         }
-        .padding(.horizontal, 9)
-        .padding(.vertical, 7)
+        .padding(.horizontal, 10.5)
+        .padding(.vertical, 8)
         .background(Theme.cardBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Theme.cardBorder, lineWidth: 0.8))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Theme.cardBorder, lineWidth: 0.8))
     }
 
     private func sizeBadge(_ bytes: Int64, label: String) -> some View {
         let isHuge = bytes >= 500 * 1024 * 1024
         let isBig = bytes >= 50 * 1024 * 1024
-        let color = isHuge ? Color(red: 0.98, green: 0.35, blue: 0.35) : (isBig ? Color(red: 0.98, green: 0.72, blue: 0.22) : Color.white.opacity(0.65))
+        let color = isHuge ? Color(red: 0.98, green: 0.35, blue: 0.35) : (isBig ? Color(red: 0.98, green: 0.72, blue: 0.22) : Color.white.opacity(0.70))
 
         return Text(label)
-            .font(.system(size: 10, weight: .bold, design: .rounded))
+            .font(.system(size: 11, weight: .bold, design: .rounded))
             .monospacedDigit()
             .foregroundStyle(color)
-            .padding(.horizontal, 5)
-            .padding(.vertical, 1)
-            .background(color.opacity(isBig ? 0.16 : 0.08), in: Capsule())
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(color.opacity(isBig ? 0.18 : 0.09), in: Capsule())
     }
 
     // MARK: - Actions
