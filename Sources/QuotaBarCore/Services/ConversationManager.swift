@@ -13,6 +13,18 @@ public struct ConversationMessage: Sendable, Identifiable {
         self.text = text
         self.timestamp = timestamp
     }
+
+    public var formattedTimestamp: String {
+        guard let ts = timestamp else { return "" }
+        let cal = Calendar.current
+        let f = DateFormatter()
+        if cal.isDateInToday(ts) {
+            f.dateFormat = "HH:mm:ss"
+        } else {
+            f.dateFormat = "MM/dd HH:mm"
+        }
+        return f.string(from: ts)
+    }
 }
 
 public struct ConversationSession: Identifiable, Sendable {
@@ -478,72 +490,154 @@ public actor ConversationManager {
         return (totalFreed, count)
     }
 
-    // MARK: - Preview Messages
+    // MARK: - Preview Messages (Latest / Trailing First)
 
-    public func loadPreviewMessages(session: ConversationSession, limit: Int = 30) -> [ConversationMessage] {
-        var messages: [ConversationMessage] = []
+    /// Efficiently reads trailing lines from a file up to maxBytes without loading massive files in full.
+    private func readTrailingLines(url: URL, maxBytes: Int = 4 * 1024 * 1024) -> [Data] {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return [] }
+        defer { try? handle.close() }
 
-        if session.provider == .claude {
-            let url = URL(fileURLWithPath: session.mainFilePath)
-            guard let data = try? Data(contentsOf: url) else { return [] }
-            for line in data.split(separator: UInt8(ascii: "\n")) {
-                guard let obj = (try? JSONSerialization.jsonObject(with: Data(line))) as? [String: Any],
-                      let type = obj["type"] as? String
-                else { continue }
+        let fileSize = (try? handle.seekToEnd()) ?? 0
+        if fileSize == 0 { return [] }
 
-                let ts = (obj["timestamp"] as? String).flatMap(Parse.date)
-                if type == "user" {
-                    if let msg = obj["message"] as? [String: Any],
-                       let text = msg["content"] as? String, !text.isEmpty {
-                        messages.append(ConversationMessage(role: "User", text: text, timestamp: ts))
-                    }
-                } else if type == "assistant" {
-                    if let msg = obj["message"] as? [String: Any] {
-                        if let text = msg["content"] as? String, !text.isEmpty {
-                            messages.append(ConversationMessage(role: "Claude", text: text, timestamp: ts))
-                        } else if let arr = msg["content"] as? [[String: Any]] {
-                            for item in arr {
-                                if let text = item["text"] as? String, !text.isEmpty {
-                                    messages.append(ConversationMessage(role: "Claude", text: text, timestamp: ts))
-                                }
+        let readSize = min(UInt64(maxBytes), fileSize)
+        let offset = fileSize - readSize
+        try? handle.seek(toOffset: offset)
+        let data = handle.readData(ofLength: Int(readSize))
+
+        var slices = data.split(separator: UInt8(ascii: "\n"))
+        // If we sought into the middle of the file, drop the partial first line
+        if offset > 0 && !slices.isEmpty {
+            slices.removeFirst()
+        }
+        return slices.map { Data($0) }
+    }
+
+    private func parseClaudeMessages(lines: [Data]) -> [ConversationMessage] {
+        var result: [ConversationMessage] = []
+        for line in lines {
+            guard let obj = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any],
+                  let type = obj["type"] as? String
+            else { continue }
+
+            let ts = (obj["timestamp"] as? String).flatMap(Parse.date)
+            if type == "user" {
+                if let msg = obj["message"] as? [String: Any] {
+                    if let text = msg["content"] as? String, !text.isEmpty {
+                        result.append(ConversationMessage(role: "User", text: text, timestamp: ts))
+                    } else if let arr = msg["content"] as? [[String: Any]] {
+                        var combined = ""
+                        for item in arr {
+                            if let text = item["text"] as? String, !text.isEmpty {
+                                combined += (combined.isEmpty ? "" : "\n") + text
                             }
+                        }
+                        if !combined.isEmpty {
+                            result.append(ConversationMessage(role: "User", text: combined, timestamp: ts))
                         }
                     }
                 }
-                if messages.count >= limit { break }
-            }
-        } else if session.provider == .antigravity {
-            if let brain = session.subagentDirPath {
-                let tURL = URL(fileURLWithPath: brain).appendingPathComponent(".system_generated/logs/transcript.jsonl")
-                if let data = try? Data(contentsOf: tURL) {
-                    for line in data.split(separator: UInt8(ascii: "\n")) {
-                        guard let obj = (try? JSONSerialization.jsonObject(with: Data(line))) as? [String: Any],
-                              let type = obj["type"] as? String
-                        else { continue }
-                        let ts = (obj["created_at"] as? String).flatMap(Parse.date)
-
-                        if type == "USER_INPUT", let raw = obj["content"] as? String {
-                            var clean = raw
-                            if clean.contains("<USER_REQUEST>") {
-                                clean = clean.components(separatedBy: "<USER_REQUEST>")[1].components(separatedBy: "</USER_REQUEST>")[0].trimmingCharacters(in: .whitespacesAndNewlines)
+            } else if type == "assistant" {
+                if let msg = obj["message"] as? [String: Any] {
+                    if let text = msg["content"] as? String, !text.isEmpty {
+                        result.append(ConversationMessage(role: "Claude", text: text, timestamp: ts))
+                    } else if let arr = msg["content"] as? [[String: Any]] {
+                        var combined = ""
+                        for item in arr {
+                            if let text = item["text"] as? String, !text.isEmpty {
+                                combined += (combined.isEmpty ? "" : "\n") + text
                             }
-                            messages.append(ConversationMessage(role: "User", text: clean, timestamp: ts))
-                        } else if type == "PLANNER_RESPONSE", let raw = obj["content"] as? String, !raw.isEmpty {
-                            messages.append(ConversationMessage(role: "Antigravity", text: raw, timestamp: ts))
                         }
-                        if messages.count >= limit { break }
+                        if !combined.isEmpty {
+                            result.append(ConversationMessage(role: "Claude", text: combined, timestamp: ts))
+                        }
                     }
                 }
             }
         }
+        return result
+    }
 
-        return messages
+    private func parseAntigravityMessages(lines: [Data]) -> [ConversationMessage] {
+        var result: [ConversationMessage] = []
+        for line in lines {
+            guard let obj = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any],
+                  let type = obj["type"] as? String
+            else { continue }
+            let ts = (obj["created_at"] as? String).flatMap(Parse.date)
+
+            if type == "USER_INPUT", let raw = obj["content"] as? String {
+                var clean = raw
+                if clean.contains("<USER_REQUEST>") {
+                    let parts = clean.components(separatedBy: "<USER_REQUEST>")
+                    if parts.count > 1 {
+                        clean = parts[1].components(separatedBy: "</USER_REQUEST>").first ?? clean
+                    }
+                }
+                clean = clean.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !clean.isEmpty {
+                    result.append(ConversationMessage(role: "User", text: clean, timestamp: ts))
+                }
+            } else if type == "PLANNER_RESPONSE", let raw = obj["content"] as? String, !raw.isEmpty {
+                result.append(ConversationMessage(role: "Antigravity", text: raw, timestamp: ts))
+            }
+        }
+        return result
+    }
+
+    /// Loads the latest / most recent conversation messages (chronological order, tail of the conversation).
+    public func loadPreviewMessages(session: ConversationSession, limit: Int = 40) -> [ConversationMessage] {
+        if session.provider == .claude {
+            let url = URL(fileURLWithPath: session.mainFilePath)
+            let lines = readTrailingLines(url: url, maxBytes: 4 * 1024 * 1024)
+            var parsed = parseClaudeMessages(lines: lines)
+            if parsed.count < 8 {
+                let largerLines = readTrailingLines(url: url, maxBytes: 16 * 1024 * 1024)
+                if largerLines.count > lines.count {
+                    parsed = parseClaudeMessages(lines: largerLines)
+                }
+            }
+            return Array(parsed.suffix(limit))
+        } else if session.provider == .antigravity {
+            if let brain = session.subagentDirPath {
+                let tURL = URL(fileURLWithPath: brain).appendingPathComponent(".system_generated/logs/transcript.jsonl")
+                let lines = readTrailingLines(url: tURL, maxBytes: 4 * 1024 * 1024)
+                var parsed = parseAntigravityMessages(lines: lines)
+                if parsed.count < 8 {
+                    let largerLines = readTrailingLines(url: tURL, maxBytes: 16 * 1024 * 1024)
+                    if largerLines.count > lines.count {
+                        parsed = parseAntigravityMessages(lines: largerLines)
+                    }
+                }
+                return Array(parsed.suffix(limit))
+            }
+        }
+
+        return []
+    }
+
+    /// Loads all messages for full export to Markdown.
+    public func loadAllMessagesForExport(session: ConversationSession) -> [ConversationMessage] {
+        if session.provider == .claude {
+            let url = URL(fileURLWithPath: session.mainFilePath)
+            guard let data = try? Data(contentsOf: url) else { return [] }
+            let lines = data.split(separator: UInt8(ascii: "\n")).map { Data($0) }
+            return parseClaudeMessages(lines: lines)
+        } else if session.provider == .antigravity {
+            if let brain = session.subagentDirPath {
+                let tURL = URL(fileURLWithPath: brain).appendingPathComponent(".system_generated/logs/transcript.jsonl")
+                guard let data = try? Data(contentsOf: tURL) else { return [] }
+                let lines = data.split(separator: UInt8(ascii: "\n")).map { Data($0) }
+                return parseAntigravityMessages(lines: lines)
+            }
+        }
+        return []
     }
 
     // MARK: - Export to Markdown
 
     public func exportToMarkdown(session: ConversationSession, targetURL: URL) throws {
-        let msgs = loadPreviewMessages(session: session, limit: 500)
+        let msgs = loadAllMessagesForExport(session: session)
         var md = """
         # 對話紀錄：\(session.projectName)
         - **服務商**：\(session.provider.displayName)

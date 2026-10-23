@@ -13,6 +13,7 @@ public struct ConversationManagerView: View {
     @State private var sortOption: SortOption = .sizeDesc
     @State private var previewSession: ConversationSession? = nil
     @State private var previewMessages: [ConversationMessage] = []
+    @State private var previewNewestFirst = true
     @State private var isCleaningOld = false
     @State private var alertMessage: String? = nil
     @State private var showAlert = false
@@ -506,6 +507,8 @@ public struct ConversationManagerView: View {
 
     private func openPreview(_ session: ConversationSession) {
         previewSession = session
+        previewMessages = []
+        previewNewestFirst = true
         Task {
             let msgs = await ConversationManager.shared.loadPreviewMessages(session: session, limit: 40)
             await MainActor.run {
@@ -614,16 +617,24 @@ public struct ConversationManagerView: View {
         }
     }
 
-    // MARK: - Preview Sheet
+    // MARK: - Preview Sheet (Latest / Trailing First)
 
     private func previewSheet(_ session: ConversationSession) -> some View {
-        VStack(spacing: 8) {
+        let displayedMessages: [ConversationMessage] = previewNewestFirst ? Array(previewMessages.reversed()) : previewMessages
+
+        return VStack(spacing: 8) {
+            // Header
             HStack {
                 ProviderLogoView(provider: session.provider, size: 14, tinted: true)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(session.projectName)
-                        .font(.system(size: 13, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white)
+                    HStack(spacing: 6) {
+                        Text(session.projectName)
+                            .font(.system(size: 13, weight: .bold, design: .rounded))
+                            .foregroundStyle(.white)
+                        Text(session.formattedRelativeTime)
+                            .font(.system(size: 10, weight: .medium, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.45))
+                    }
                     Text(session.id)
                         .font(.system(size: 9, design: .monospaced))
                         .foregroundStyle(.white.opacity(0.45))
@@ -641,6 +652,36 @@ public struct ConversationManagerView: View {
             .padding(.horizontal, 12)
             .padding(.top, 10)
 
+            // Sub-header toolbar: message count + sorting toggle
+            HStack {
+                Text(previewMessages.isEmpty ? "讀取中…" : "最近 \(previewMessages.count) 則對話")
+                    .font(.system(size: 10.5, weight: .medium, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.50))
+
+                Spacer()
+
+                Button {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        previewNewestFirst.toggle()
+                    }
+                } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: previewNewestFirst ? "arrow.down.to.line" : "arrow.up.to.line")
+                            .font(.system(size: 9, weight: .bold))
+                        Text(previewNewestFirst ? "最新在最前 (預設)" : "依時間順序 (舊到新)")
+                            .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                    }
+                    .foregroundStyle(Color(red: 0.40, green: 0.75, blue: 1.0))
+                    .padding(.horizontal, 7.5)
+                    .padding(.vertical, 3)
+                    .background(Color(red: 0.40, green: 0.75, blue: 1.0).opacity(0.12), in: Capsule())
+                    .overlay(Capsule().strokeBorder(Color(red: 0.40, green: 0.75, blue: 1.0).opacity(0.25), lineWidth: 0.8))
+                }
+                .buttonStyle(.plain)
+                .help("切換對話排列順序")
+            }
+            .padding(.horizontal, 12)
+
             Divider().overlay(Color.white.opacity(0.10))
 
             ScrollView(.vertical) {
@@ -656,35 +697,59 @@ public struct ConversationManagerView: View {
                     .padding(.vertical, 30)
                 } else {
                     LazyVStack(alignment: .leading, spacing: 8) {
-                        ForEach(previewMessages) { msg in
-                            VStack(alignment: .leading, spacing: 3) {
-                                HStack {
+                        ForEach(Array(displayedMessages.enumerated()), id: \.element.id) { index, msg in
+                            let isLatest = previewNewestFirst ? (index == 0) : (index == displayedMessages.count - 1)
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack(alignment: .center) {
                                     Text(msg.role == "User" ? "👤 使用者" : "🤖 \(msg.role)")
                                         .font(.system(size: 10.5, weight: .bold, design: .rounded))
                                         .foregroundStyle(msg.role == "User" ? Color(red: 0.40, green: 0.75, blue: 1.0) : Theme.brandColor(session.provider))
+
+                                    if isLatest {
+                                        HStack(spacing: 2.5) {
+                                            Circle()
+                                                .fill(Color(red: 0.35, green: 0.85, blue: 0.55))
+                                                .frame(width: 4.5, height: 4.5)
+                                            Text("最新內容")
+                                                .font(.system(size: 9.5, weight: .bold, design: .rounded))
+                                        }
+                                        .foregroundStyle(Color(red: 0.35, green: 0.85, blue: 0.55))
+                                        .padding(.horizontal, 5.5)
+                                        .padding(.vertical, 1.5)
+                                        .background(Color(red: 0.35, green: 0.85, blue: 0.55).opacity(0.14), in: Capsule())
+                                    }
+
                                     Spacer()
-                                    if let ts = msg.timestamp {
-                                        Text(ts, style: .time)
-                                            .font(.system(size: 9))
+
+                                    if !msg.formattedTimestamp.isEmpty {
+                                        Text(msg.formattedTimestamp)
+                                            .font(.system(size: 9.5, weight: .regular, design: .monospaced))
                                             .foregroundStyle(.white.opacity(0.40))
                                     }
                                 }
+
                                 Text(msg.text)
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(.white.opacity(0.88))
+                                    .font(.system(size: 11.5))
+                                    .lineSpacing(2)
+                                    .foregroundStyle(.white.opacity(0.92))
                                     .textSelection(.enabled)
                             }
                             .padding(.horizontal, 9)
-                            .padding(.vertical, 6)
-                            .background(msg.role == "User" ? Color.white.opacity(0.06) : Color.white.opacity(0.03))
+                            .padding(.vertical, 7)
+                            .background(isLatest ? Color.white.opacity(0.08) : (msg.role == "User" ? Color.white.opacity(0.05) : Color.white.opacity(0.025)))
                             .clipShape(RoundedRectangle(cornerRadius: 6))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .strokeBorder(isLatest ? Color(red: 0.35, green: 0.85, blue: 0.55).opacity(0.35) : Color.clear, lineWidth: 0.8)
+                            )
                         }
                     }
                     .padding(.horizontal, 12)
                     .padding(.bottom, 10)
                 }
             }
-            .frame(height: 280)
+            .frame(height: 290)
 
             HStack {
                 Button("在 Finder 中顯示") {
