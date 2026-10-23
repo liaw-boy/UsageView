@@ -53,16 +53,18 @@ public struct ConversationManagerView: View {
                 filterBar
                 conversationList
             }
+            .frame(width: 368, height: 508)
             .opacity(previewSession == nil ? 1 : 0)
             .disabled(previewSession != nil)
 
             // In-place full preview overlay (matching exact background bounds)
             if let session = previewSession {
                 previewFullView(session)
+                    .frame(width: 368, height: 508)
                     .transition(.opacity)
             }
         }
-        .frame(maxWidth: .infinity)
+        .frame(width: 368, height: 508)
         .task {
             await loadData()
         }
@@ -784,7 +786,7 @@ public struct ConversationManagerView: View {
                     .padding(.bottom, 6)
                 }
             }
-            .frame(maxHeight: .infinity)
+            .frame(height: 380)
 
             Divider().overlay(Color.white.opacity(0.10))
 
@@ -828,7 +830,7 @@ public struct ConversationManagerView: View {
                 .buttonStyle(.plain)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(width: 368, height: 508)
         .background(Theme.panelBackground)
     }
 }
