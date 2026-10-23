@@ -172,19 +172,28 @@ public actor ConversationManager {
     private func scanClaudeSessions() -> [ConversationSession] {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let historyURL = home.appendingPathComponent(".claude/history.jsonl")
-        var historyMap: [String: (prompt: String, project: String, ts: Date)] = [:]
+        var historyMap: [String: (prompt: String, project: String, createdAt: Date, updatedAt: Date)] = [:]
 
         if let historyData = try? Data(contentsOf: historyURL) {
             for line in historyData.split(separator: UInt8(ascii: "\n")) {
                 guard let obj = (try? JSONSerialization.jsonObject(with: Data(line))) as? [String: Any],
                       let sid = obj["sessionId"] as? String, !sid.isEmpty
                 else { continue }
-                if historyMap[sid] == nil {
-                    let prompt = (obj["display"] as? String) ?? ""
-                    let proj = (obj["project"] as? String) ?? ""
-                    let tsNum = (obj["timestamp"] as? NSNumber)?.doubleValue ?? 0
-                    let ts = tsNum > 0 ? Date(timeIntervalSince1970: tsNum / 1000.0) : Date()
-                    historyMap[sid] = (prompt, proj, ts)
+                let prompt = (obj["display"] as? String) ?? ""
+                let proj = (obj["project"] as? String) ?? ""
+                let tsNum = (obj["timestamp"] as? NSNumber)?.doubleValue ?? 0
+                let ts = tsNum > 0 ? Date(timeIntervalSince1970: tsNum / 1000.0) : Date()
+
+                if let existing = historyMap[sid] {
+                    let latestTs = max(existing.updatedAt, ts)
+                    historyMap[sid] = (
+                        existing.prompt.isEmpty ? prompt : existing.prompt,
+                        existing.project.isEmpty ? proj : existing.project,
+                        existing.createdAt,
+                        latestTs
+                    )
+                } else {
+                    historyMap[sid] = (prompt, proj, ts, ts)
                 }
             }
         }
@@ -214,16 +223,17 @@ public actor ConversationManager {
                 let subDir = pDir.appendingPathComponent(sid)
                 var subSize: Int64 = 0
                 var subDirExists = false
-                var latestMtime = mainMtime
+                var latestFileMtime = mainMtime
 
                 if (try? subDir.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
                     subDirExists = true
                     if let enumerator = FileManager.default.enumerator(at: subDir, includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey]) {
                         for case let subFile as URL in enumerator {
+                            guard subFile.lastPathComponent != ".DS_Store" else { continue }
                             if let vals = try? subFile.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]) {
                                 subSize += Int64(vals.fileSize ?? 0)
-                                if let m = vals.contentModificationDate, m > latestMtime {
-                                    latestMtime = m
+                                if subFile.pathExtension == "jsonl", let m = vals.contentModificationDate, m > latestFileMtime {
+                                    latestFileMtime = m
                                 }
                             }
                         }
@@ -234,7 +244,9 @@ public actor ConversationManager {
                 let hInfo = historyMap[sid]
                 var prompt = hInfo?.prompt ?? ""
                 let projPath = hInfo?.project ?? decodedProject
-                let createdAt = hInfo?.ts ?? mainMtime
+                let createdAt = hInfo?.createdAt ?? mainMtime
+                // Use true conversation timestamp from history.jsonl if available; never corrupted by Finder opening!
+                let updatedAt = hInfo?.updatedAt ?? latestFileMtime
 
                 // If prompt is empty, read the first user prompt from the file
                 if prompt.isEmpty {
@@ -253,7 +265,7 @@ public actor ConversationManager {
                     projectPath: projPath,
                     prompt: prompt,
                     createdAt: createdAt,
-                    updatedAt: latestMtime,
+                    updatedAt: updatedAt,
                     totalSizeBytes: totalSize,
                     mainFilePath: file.path,
                     subagentDirPath: subDirExists ? subDir.path : nil,
@@ -331,6 +343,7 @@ public actor ConversationManager {
                 brainDirExists = true
                 if let enumerator = FileManager.default.enumerator(at: brainDir, includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey]) {
                     for case let subFile as URL in enumerator {
+                        guard subFile.lastPathComponent != ".DS_Store" else { continue }
                         if let vals = try? subFile.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]) {
                             extraSize += Int64(vals.fileSize ?? 0)
                             if let m = vals.contentModificationDate, m > latestMtime {
@@ -343,13 +356,23 @@ public actor ConversationManager {
 
             let totalSize = Int64(dbSize) + extraSize
 
-            // Read first prompt from transcript
+            // Read first prompt and true last timestamp from transcript
             var prompt = ""
+            var trueLastDate: Date? = nil
             let projectPath = "/Users/boywei/project_code"
             let transcriptURL = brainDir.appendingPathComponent(".system_generated/logs/transcript.jsonl")
 
             if let tData = try? Data(contentsOf: transcriptURL) {
-                for line in tData.split(separator: UInt8(ascii: "\n")) {
+                let lines = tData.split(separator: UInt8(ascii: "\n"))
+                for line in lines.reversed() {
+                    guard let obj = (try? JSONSerialization.jsonObject(with: Data(line))) as? [String: Any],
+                          let ca = obj["created_at"] as? String,
+                          let d = Parse.date(ca)
+                    else { continue }
+                    trueLastDate = d
+                    break
+                }
+                for line in lines {
                     guard let obj = (try? JSONSerialization.jsonObject(with: Data(line))) as? [String: Any],
                           let type = obj["type"] as? String, type == "USER_INPUT",
                           let content = obj["content"] as? String
@@ -373,6 +396,7 @@ public actor ConversationManager {
             }
 
             let projName = (projectPath as NSString).lastPathComponent
+            let updatedAt = trueLastDate ?? latestMtime
 
             results.append(ConversationSession(
                 id: cid,
@@ -380,8 +404,8 @@ public actor ConversationManager {
                 projectName: projName.isEmpty ? "Antigravity" : projName,
                 projectPath: projectPath,
                 prompt: prompt,
-                createdAt: latestMtime,
-                updatedAt: latestMtime,
+                createdAt: updatedAt,
+                updatedAt: updatedAt,
                 totalSizeBytes: totalSize,
                 mainFilePath: file.path,
                 subagentDirPath: brainDirExists ? brainDir.path : nil,

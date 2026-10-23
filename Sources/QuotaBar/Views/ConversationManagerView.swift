@@ -416,7 +416,7 @@ public struct ConversationManagerView: View {
                     HStack(spacing: 3) {
                         Image(systemName: "folder.fill")
                             .font(.system(size: 9.5, weight: .semibold))
-                        Text("訪達")
+                        Text("Finder")
                             .font(.system(size: 10.5, weight: .semibold, design: .rounded))
                     }
                     .foregroundStyle(.white.opacity(0.85))
@@ -683,7 +683,7 @@ public struct ConversationManagerView: View {
             .frame(height: 280)
 
             HStack {
-                Button("在訪達中顯示") {
+                Button("在 Finder 中顯示") {
                     revealInFinder(session)
                 }
                 .buttonStyle(.plain)
