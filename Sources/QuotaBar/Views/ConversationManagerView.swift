@@ -45,18 +45,26 @@ public struct ConversationManagerView: View {
     }
 
     public var body: some View {
-        VStack(spacing: 8) {
-            header
-            storageOverviewCard
-            filterBar
-            conversationList
+        ZStack(alignment: .top) {
+            // Main conversation & storage management list
+            VStack(spacing: 8) {
+                header
+                storageOverviewCard
+                filterBar
+                conversationList
+            }
+            .opacity(previewSession == nil ? 1 : 0)
+            .disabled(previewSession != nil)
+
+            // In-place full preview overlay (matching exact background bounds)
+            if let session = previewSession {
+                previewFullView(session)
+                    .transition(.opacity)
+            }
         }
         .frame(maxWidth: .infinity)
         .task {
             await loadData()
-        }
-        .sheet(item: $previewSession) { session in
-            previewSheet(session)
         }
         .alert("空間清理通知", isPresented: $showAlert) {
             Button("確定", role: .cancel) {}
@@ -617,31 +625,49 @@ public struct ConversationManagerView: View {
         }
     }
 
-    // MARK: - Preview Sheet (Latest / Trailing First)
+    // MARK: - In-Place Full Preview View (Matching exact background height & width)
 
-    private func previewSheet(_ session: ConversationSession) -> some View {
+    private func previewFullView(_ session: ConversationSession) -> some View {
         let displayedMessages: [ConversationMessage] = previewNewestFirst ? Array(previewMessages.reversed()) : previewMessages
 
-        return VStack(spacing: 8) {
-            // Header
-            HStack {
-                ProviderLogoView(provider: session.provider, size: 14, tinted: true)
-                VStack(alignment: .leading, spacing: 1) {
-                    HStack(spacing: 6) {
-                        Text(session.projectName)
-                            .font(.system(size: 13, weight: .bold, design: .rounded))
-                            .foregroundStyle(.white)
-                        Text(session.formattedRelativeTime)
-                            .font(.system(size: 10, weight: .medium, design: .rounded))
-                            .foregroundStyle(.white.opacity(0.45))
-                    }
-                    Text(session.id)
-                        .font(.system(size: 9, design: .monospaced))
-                        .foregroundStyle(.white.opacity(0.45))
-                }
-                Spacer()
+        return VStack(spacing: 7) {
+            // Header bar
+            HStack(spacing: 6) {
                 Button {
-                    previewSession = nil
+                    withAnimation(.easeInOut(duration: 0.16)) {
+                        previewSession = nil
+                    }
+                } label: {
+                    HStack(spacing: 3.5) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 11, weight: .bold))
+                        Text("返回列表")
+                            .font(.system(size: 11.5, weight: .semibold, design: .rounded))
+                    }
+                    .foregroundStyle(.white.opacity(0.88))
+                    .padding(.horizontal, 8.5)
+                    .padding(.vertical, 4)
+                    .background(Theme.cardBackground, in: Capsule())
+                    .overlay(Capsule().strokeBorder(Theme.cardBorder, lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+
+                Spacer()
+
+                HStack(spacing: 5) {
+                    ProviderLogoView(provider: session.provider, size: 14, tinted: true)
+                    Text(session.projectName)
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                }
+
+                Spacer()
+
+                Button {
+                    withAnimation(.easeInOut(duration: 0.16)) {
+                        previewSession = nil
+                    }
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 16))
@@ -649,14 +675,24 @@ public struct ConversationManagerView: View {
                 }
                 .buttonStyle(.plain)
             }
-            .padding(.horizontal, 12)
-            .padding(.top, 10)
 
-            // Sub-header toolbar: message count + sorting toggle
-            HStack {
-                Text(previewMessages.isEmpty ? "讀取中…" : "最近 \(previewMessages.count) 則對話")
-                    .font(.system(size: 10.5, weight: .medium, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.50))
+            // Sub-header toolbar: ID & Relative time + sorting toggle
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(spacing: 4) {
+                        Text(previewMessages.isEmpty ? "讀取中…" : "最近 \(previewMessages.count) 則對話")
+                            .font(.system(size: 10.5, weight: .medium, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.65))
+                        Text("•")
+                            .foregroundStyle(.white.opacity(0.30))
+                        Text(session.formattedRelativeTime)
+                            .font(.system(size: 10.5, weight: .medium, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.50))
+                    }
+                    Text(session.id)
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.40))
+                }
 
                 Spacer()
 
@@ -680,21 +716,21 @@ public struct ConversationManagerView: View {
                 .buttonStyle(.plain)
                 .help("切換對話排列順序")
             }
-            .padding(.horizontal, 12)
 
             Divider().overlay(Color.white.opacity(0.10))
 
+            // Scrollable messages list filling all remaining middle space
             ScrollView(.vertical) {
                 if previewMessages.isEmpty {
-                    VStack(spacing: 6) {
+                    VStack(spacing: 8) {
                         ProgressView()
-                            .scaleEffect(0.8)
+                            .scaleEffect(0.85)
                         Text("讀取訊息中…")
                             .font(.system(size: 11))
                             .foregroundStyle(.white.opacity(0.55))
                     }
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 30)
+                    .padding(.vertical, 80)
                 } else {
                     LazyVStack(alignment: .leading, spacing: 8) {
                         ForEach(Array(displayedMessages.enumerated()), id: \.element.id) { index, msg in
@@ -745,33 +781,54 @@ public struct ConversationManagerView: View {
                             )
                         }
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 10)
+                    .padding(.bottom, 6)
                 }
             }
-            .frame(height: 290)
+            .frame(maxHeight: .infinity)
 
+            Divider().overlay(Color.white.opacity(0.10))
+
+            // Footer actions
             HStack {
-                Button("在 Finder 中顯示") {
+                Button {
                     revealInFinder(session)
+                } label: {
+                    HStack(alignment: .center, spacing: 3.5) {
+                        Image(systemName: "folder.fill")
+                            .font(.system(size: 9.5))
+                            .offset(y: 0.1)
+                        Text("在 Finder 中顯示")
+                            .font(.system(size: 11, weight: .medium, design: .rounded))
+                    }
+                    .foregroundStyle(.white.opacity(0.85))
+                    .padding(.horizontal, 9)
+                    .frame(height: 25)
+                    .background(Color.white.opacity(0.09), in: Capsule())
+                    .overlay(Capsule().strokeBorder(Color.white.opacity(0.14), lineWidth: 0.8))
                 }
                 .buttonStyle(.plain)
-                .font(.system(size: 11))
-                .foregroundStyle(.white.opacity(0.70))
 
                 Spacer()
 
-                Button("匯出為 Markdown") {
+                Button {
                     exportMarkdown(session)
+                } label: {
+                    HStack(alignment: .center, spacing: 3.5) {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 9.5))
+                            .offset(y: -0.6)
+                        Text("匯出為 Markdown")
+                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 10)
+                    .frame(height: 25)
+                    .background(Color(red: 0.18, green: 0.52, blue: 0.95), in: Capsule())
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
+                .buttonStyle(.plain)
             }
-            .padding(.horizontal, 12)
-            .padding(.bottom, 10)
         }
-        .frame(width: 380)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.panelBackground)
-        .environment(\.colorScheme, .dark)
     }
 }
