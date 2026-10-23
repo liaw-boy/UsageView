@@ -548,6 +548,12 @@ public actor ConversationManager {
         var freed: Int64 = 0
         let fm = FileManager.default
 
+        // Only ever touch files inside the CLIs' own data folders, never symlinks.
+        let paths = [session.mainFilePath] + (session.subagentDirPath.map { [$0] } ?? [])
+        for path in paths where !isTrashable(path) {
+            throw CocoaError(.fileWriteNoPermission)
+        }
+
         // 1. Main file
         let mainURL = URL(fileURLWithPath: session.mainFilePath)
         if fm.fileExists(atPath: mainURL.path) {
@@ -586,6 +592,16 @@ public actor ConversationManager {
         }
 
         return freed
+    }
+
+    private func isTrashable(_ path: String) -> Bool {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let roots = [home.appendingPathComponent(".claude"), home.appendingPathComponent(".gemini"), codexHomeURL()]
+            .map { $0.resolvingSymlinksInPath().standardizedFileURL.path + "/" }
+        let url = URL(fileURLWithPath: path)
+        if (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true { return false }
+        let resolved = url.resolvingSymlinksInPath().standardizedFileURL.path
+        return roots.contains { resolved.hasPrefix($0) }
     }
 
     public func batchMoveToTrash(sessions: [ConversationSession]) -> (freedBytes: Int64, count: Int) {

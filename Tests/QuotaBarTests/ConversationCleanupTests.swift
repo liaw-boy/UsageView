@@ -83,4 +83,31 @@ final class ConversationCleanupTests: XCTestCase {
         XCTAssertEqual(fallback.projectName, "Codex")
         XCTAssertTrue(fallback.prompt.hasPrefix("對話"))
     }
+
+    func testMoveToTrashRejectsPathsOutsideDataFoldersAndSymlinks() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("trash-" + UUID().uuidString)
+        defer { try? fm.removeItem(at: root) }
+        let home = root.appendingPathComponent("codex")
+        let outside = root.appendingPathComponent("outside.jsonl")
+        let link = home.appendingPathComponent("sessions/link.jsonl")
+        try fm.createDirectory(at: link.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "data".write(to: outside, atomically: true, encoding: .utf8)
+        try fm.createSymbolicLink(at: link, withDestinationURL: outside)
+
+        let manager = ConversationManager(codexHome: home)
+        let now = Date()
+        for path in [outside.path, link.path] {
+            let s = ConversationSession(
+                id: "x", provider: .codex, projectName: "demo", projectPath: "", prompt: "p",
+                createdAt: now, updatedAt: now, totalSizeBytes: 4, mainFilePath: path
+            )
+            do {
+                _ = try await manager.moveToTrash(session: s)
+                XCTFail("should reject \(path)")
+            } catch {}
+        }
+        XCTAssertTrue(fm.fileExists(atPath: outside.path))
+        XCTAssertTrue(fm.fileExists(atPath: link.path))
+    }
 }
