@@ -201,12 +201,12 @@ struct DualRingGauge: View {
             if size >= 44 {
                 VStack(spacing: 0) {
                     Text(Theme.formattedPercent(sessionUsed, showRemaining: showRemaining))
-                        .font(.system(size: size * 0.20, weight: .bold, design: .rounded))
+                        .font(.system(size: size * 0.22, weight: .bold, design: .rounded))
                         .foregroundStyle(.white)
                         .monospacedDigit()
                     Text(showRemaining ? "剩餘" : "已用")
-                        .font(.system(size: size * 0.12, weight: .medium, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.60))
+                        .font(.system(size: size * 0.13, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.65))
                 }
             }
         }

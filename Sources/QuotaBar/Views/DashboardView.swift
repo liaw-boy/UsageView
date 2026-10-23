@@ -51,10 +51,10 @@ struct DashboardView: View {
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 5) {
                     Text(controller.showingSettings ? "偏好設定" : "UsageView")
-                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                        .font(.system(size: 15.5, weight: .bold, design: .rounded))
                         .foregroundStyle(.white)
                     Text("v\(UpdateService.currentVersion)")
-                        .font(.system(size: 9.5, weight: .semibold, design: .rounded))
+                        .font(.system(size: 10, weight: .semibold, design: .rounded))
                         .foregroundStyle(.white.opacity(0.55))
                         .padding(.horizontal, 5)
                         .padding(.vertical, 1)
@@ -85,8 +85,8 @@ struct DashboardView: View {
                     }
                 }
                 Text(updatedSubtitle)
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(.white.opacity(0.54))
+                    .font(.system(size: 11))
+                    .foregroundStyle(.white.opacity(0.58))
             }
 
             Spacer()
@@ -95,9 +95,9 @@ struct DashboardView: View {
                 settings.showRemaining.toggle()
             } label: {
                 Text(settings.showRemaining ? "剩餘 %" : "已用 %")
-                    .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
                     .foregroundStyle(.white.opacity(0.90))
-                    .padding(.horizontal, 8)
+                    .padding(.horizontal, 8.5)
                     .padding(.vertical, 3.5)
                     .background(Theme.cardBackground, in: Capsule())
                     .overlay(Capsule().strokeBorder(Theme.cardBorder, lineWidth: 1))
@@ -110,9 +110,9 @@ struct DashboardView: View {
                 withAnimation(.easeInOut(duration: 0.16)) { controller.showingStats = true }
             } label: {
                 Image(systemName: "chart.bar.xaxis")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: 11.5, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.90))
-                    .frame(width: 24, height: 24)
+                    .frame(width: 25, height: 25)
                     .background(Theme.cardBackground, in: Circle())
                     .overlay(Circle().strokeBorder(Theme.cardBorder, lineWidth: 1))
             }
@@ -130,7 +130,7 @@ struct DashboardView: View {
                         store.isRefreshing ? .linear(duration: 0.9).repeatForever(autoreverses: false) : .default,
                         value: store.isRefreshing
                     )
-                    .frame(width: 24, height: 24)
+                    .frame(width: 25, height: 25)
                     .background(Theme.cardBackground, in: Circle())
                     .overlay(Circle().strokeBorder(Theme.cardBorder, lineWidth: 1))
             }
@@ -304,11 +304,11 @@ struct ProviderCardView: View {
                 .opacity(state.isStale ? 0.65 : 1.0)
                 .onTapGesture(perform: onToggleMode)
 
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 5) {
-                    ProviderLogoView(provider: provider, size: 13.5, tinted: true)
+            VStack(alignment: .leading, spacing: 4.5) {
+                HStack(spacing: 5.5) {
+                    ProviderLogoView(provider: provider, size: 14.5, tinted: true)
                     Text(provider.displayName)
-                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
                         .foregroundStyle(.white)
 
                     if let plan = state.snapshot?.planName, !plan.isEmpty {
@@ -444,12 +444,12 @@ private struct PlanBadgeView: View {
 
     var body: some View {
         Text(plan)
-            .font(.system(size: 9, weight: .bold, design: .rounded))
+            .font(.system(size: 10, weight: .bold, design: .rounded))
             .lineLimit(1)
             .fixedSize(horizontal: true, vertical: false)
             .foregroundStyle(color)
-            .padding(.horizontal, 5.5)
-            .padding(.vertical, 1)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 1.5)
             .background(color.opacity(0.15), in: Capsule())
             .overlay(Capsule().strokeBorder(color.opacity(0.38), lineWidth: 0.7))
     }
@@ -461,26 +461,26 @@ private struct CardSpendFooterRow: View {
     var onOpenStats: (() -> Void)? = nil
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 2.5) {
             if let spend, spend.hasAnyUsage {
                 Button {
                     onOpenStats?()
                 } label: {
                     HStack(spacing: 4.5) {
                         Image(systemName: "dollarsign.circle.fill")
-                            .font(.system(size: 9.5))
+                            .font(.system(size: 10.5))
                             .foregroundStyle(Color(red: 0.35, green: 0.85, blue: 0.62).opacity(0.88))
                         Text(spendLabel(spend))
-                            .font(.system(size: 9.5, weight: .medium, design: .rounded))
+                            .font(.system(size: 10.5, weight: .semibold, design: .rounded))
                             .monospacedDigit()
-                            .foregroundStyle(.white.opacity(0.68))
+                            .foregroundStyle(.white.opacity(0.78))
                             .lineLimit(1)
                         Spacer(minLength: 0)
                         HStack(spacing: 2) {
                             Text("統計表")
-                                .font(.system(size: 8.5, weight: .semibold, design: .rounded))
+                                .font(.system(size: 9.5, weight: .semibold, design: .rounded))
                             Image(systemName: "chevron.right")
-                                .font(.system(size: 7.5, weight: .bold))
+                                .font(.system(size: 8, weight: .bold))
                         }
                         .foregroundStyle(Color(red: 0.35, green: 0.85, blue: 0.62).opacity(0.85))
                     }
@@ -491,10 +491,10 @@ private struct CardSpendFooterRow: View {
             if let extra = extraUsageText {
                 HStack(spacing: 4.5) {
                     Image(systemName: "creditcard.fill")
-                        .font(.system(size: 8.5))
+                        .font(.system(size: 9.5))
                         .foregroundStyle(Color(red: 0.56, green: 0.78, blue: 1.0).opacity(0.85))
                     Text(extra)
-                        .font(.system(size: 9.5, weight: .semibold, design: .rounded))
+                        .font(.system(size: 10.5, weight: .semibold, design: .rounded))
                         .monospacedDigit()
                         .foregroundStyle(Color(red: 0.56, green: 0.78, blue: 1.0))
                         .lineLimit(1)
@@ -721,31 +721,31 @@ private struct MetricBarRow: View {
                     let tickX = min(max(3, geo.size.width * CGFloat(tick)), geo.size.width - 3)
                     RoundedRectangle(cornerRadius: 1)
                         .fill(Color.white.opacity(0.75))
-                        .frame(width: 1.5, height: 15)
+                        .frame(width: 1.5, height: 17)
                         .shadow(color: .black.opacity(0.6), radius: 1, x: 0, y: 0)
                         .offset(x: tickX - 0.75)
                 }
 
                 HStack(spacing: 4) {
                     Text(displayLabel)
-                        .font(.system(size: 10.5, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.92))
+                        .font(.system(size: 11.5, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.94))
                         .lineLimit(1)
                         .fixedSize(horizontal: true, vertical: false)
 
                     Spacer(minLength: 4)
 
                     Text(trailingText)
-                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .font(.system(size: 11.5, weight: .bold, design: .rounded))
                         .monospacedDigit()
-                        .foregroundStyle(.white.opacity(0.78))
+                        .foregroundStyle(.white.opacity(0.88))
                         .lineLimit(1)
                         .fixedSize(horizontal: true, vertical: false)
                 }
                 .padding(.horizontal, 7)
             }
         }
-        .frame(height: 19)
+        .frame(height: 22)
         .help(tooltipText)
     }
 
@@ -806,7 +806,7 @@ private struct PaceChip: View {
 
     var body: some View {
         Text(label)
-            .font(.system(size: 9.5, weight: .bold, design: .rounded))
+            .font(.system(size: 10, weight: .bold, design: .rounded))
             .lineLimit(1)
             .fixedSize(horizontal: true, vertical: false)
             .foregroundStyle(tint)
