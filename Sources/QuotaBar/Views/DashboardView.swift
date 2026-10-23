@@ -138,7 +138,7 @@ struct DashboardView: View {
                     .overlay(Circle().strokeBorder(Theme.cardBorder, lineWidth: 1))
             }
             .buttonStyle(.plain)
-            .help("查看對話紀錄與空間管理（瘦身、搜尋、匯出）")
+            .help("查看對話紀錄與空間管理（清理、搜尋、匯出）")
 
             Button {
                 Task { await store.refresh(manual: true) }
@@ -282,7 +282,7 @@ struct DashboardView: View {
                     .overlay(Capsule().strokeBorder(Theme.cardBorder, lineWidth: 1))
                 }
                 .buttonStyle(.plain)
-                .help("管理本地對話紀錄與硬碟空間瘦身")
+                .help("管理本地對話紀錄與釋放硬碟空間")
 
                 Button {
                     ShareExporter.shareAllCards(store: store, showRemaining: settings.showRemaining)

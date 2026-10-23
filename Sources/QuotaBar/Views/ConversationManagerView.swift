@@ -191,7 +191,7 @@ public struct ConversationManagerView: View {
                     HStack(spacing: 3) {
                         Image(systemName: "sparkles")
                             .font(.system(size: 10))
-                        Text("一鍵智能瘦身")
+                        Text("釋放空間")
                             .font(.system(size: 10.5, weight: .bold, design: .rounded))
                     }
                     .foregroundStyle(Color(red: 0.30, green: 0.88, blue: 0.56))
@@ -548,7 +548,7 @@ public struct ConversationManagerView: View {
 
         let candStr = formatBytesBrief(totalCandBytes)
         let alert = NSAlert()
-        alert.messageText = "確定執行一鍵智能瘦身？"
+        alert.messageText = "確定執行一鍵清理並釋放空間？"
         alert.informativeText = "將把 \(candidates.count) 筆超過 14 天且大於 50MB 的舊對話移至垃圾桶。\n\n預計可釋放 \(candStr) 空間！\n（檔案均移至 macOS 垃圾桶，不會直接抹除，需要時可放回原處）"
         alert.addButton(withTitle: "移至垃圾桶釋放 \(candStr)")
         alert.addButton(withTitle: "取消")
@@ -558,7 +558,7 @@ public struct ConversationManagerView: View {
             Task {
                 let (freed, count) = await ConversationManager.shared.batchMoveToTrash(sessions: candidates)
                 await loadData()
-                showToast("瘦身完成！共 \(count) 筆對話移至垃圾桶，釋放 \(formatBytesBrief(freed))")
+                showToast("清理完成！共 \(count) 筆對話移至垃圾桶，釋放 \(formatBytesBrief(freed))")
             }
         }
     }
