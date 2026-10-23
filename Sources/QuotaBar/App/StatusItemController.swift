@@ -16,6 +16,7 @@ final class StatusItemController: NSObject, ObservableObject, NSPopoverDelegate 
     private var eventMonitor: Any?
     @Published var showingSettings = false
     @Published var showingStats = false
+    @Published var showingConversations = false
     @Published var statsProvider: ProviderID? = nil
 
     init(store: SnapshotStore, settings: SettingsStore, updater: UpdateService) {
@@ -49,7 +50,7 @@ final class StatusItemController: NSObject, ObservableObject, NSPopoverDelegate 
             }
             .store(in: &cancellables)
 
-        Publishers.Merge($showingSettings, $showingStats)
+        Publishers.Merge3($showingSettings, $showingStats, $showingConversations)
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 self?.syncPopoverSize()
@@ -128,6 +129,7 @@ final class StatusItemController: NSObject, ObservableObject, NSPopoverDelegate 
     func popoverDidClose(_ notification: Notification) {
         showingSettings = false
         showingStats = false
+        showingConversations = false
         statsProvider = nil
         stopMonitoringOutsideClicks()
     }
@@ -145,6 +147,10 @@ final class StatusItemController: NSObject, ObservableObject, NSPopoverDelegate 
         let settingsItem = NSMenuItem(title: "設定…", action: #selector(menuSettings), keyEquivalent: ",")
         settingsItem.target = self
         menu.addItem(settingsItem)
+
+        let convItem = NSMenuItem(title: "對話紀錄與空間管理…", action: #selector(menuConversations), keyEquivalent: "m")
+        convItem.target = self
+        menu.addItem(convItem)
 
         menu.addItem(.separator())
         let quitItem = NSMenuItem(title: "結束 UsageView", action: #selector(menuQuit), keyEquivalent: "q")
@@ -175,6 +181,13 @@ final class StatusItemController: NSObject, ObservableObject, NSPopoverDelegate 
         }
     }
 
+    @objc private func menuConversations() {
+        showingConversations = true
+        if let button = statusItem.button, !popover.isShown {
+            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        }
+    }
+
     @objc private func menuQuit() {
         NSApp.terminate(nil)
     }
@@ -186,6 +199,7 @@ final class StatusItemController: NSObject, ObservableObject, NSPopoverDelegate 
                 self?.popover.performClose(nil)
                 self?.showingSettings = false
                 self?.showingStats = false
+                self?.showingConversations = false
                 self?.statsProvider = nil
                 self?.stopMonitoringOutsideClicks()
             }

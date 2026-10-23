@@ -15,6 +15,14 @@ struct DashboardView: View {
                     header
                     SettingsView(settings: settings, updater: updater)
                     footer
+                } else if controller.showingConversations {
+                    ConversationManagerView(
+                        onBack: {
+                            withAnimation(.easeInOut(duration: 0.16)) {
+                                controller.showingConversations = false
+                            }
+                        }
+                    )
                 } else if controller.showingStats {
                     UsageStatisticsView(
                         store: store,
@@ -33,7 +41,7 @@ struct DashboardView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
-            .frame(width: 368)
+            .frame(width: (controller.showingConversations || controller.showingStats) ? 396 : 368)
             .fixedSize(horizontal: true, vertical: true)
             .background(Theme.panelBackground)
             .environment(\.colorScheme, .dark)
@@ -118,6 +126,19 @@ struct DashboardView: View {
             }
             .buttonStyle(.plain)
             .help("查看 Token 與花費統計表（當日 · 週 · 月）")
+
+            Button {
+                withAnimation(.easeInOut(duration: 0.16)) { controller.showingConversations = true }
+            } label: {
+                Image(systemName: "bubble.left.and.bubble.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.90))
+                    .frame(width: 25, height: 25)
+                    .background(Theme.cardBackground, in: Circle())
+                    .overlay(Circle().strokeBorder(Theme.cardBorder, lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+            .help("查看對話紀錄與空間管理（瘦身、搜尋、匯出）")
 
             Button {
                 Task { await store.refresh(manual: true) }
@@ -238,6 +259,24 @@ struct DashboardView: View {
                 }
                 .buttonStyle(.plain)
                 .help("查看 Token 與花費統計表（當日 · 週 · 月）")
+
+                Button {
+                    withAnimation(.easeInOut(duration: 0.16)) { controller.showingConversations.toggle() }
+                } label: {
+                    HStack(spacing: 3.5) {
+                        Image(systemName: "bubble.left.and.bubble.right")
+                            .font(.system(size: 10.5, weight: .semibold))
+                        Text("對話管理")
+                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    }
+                    .foregroundStyle(.white.opacity(0.85))
+                    .padding(.horizontal, 8.5)
+                    .padding(.vertical, 4)
+                    .background(Theme.cardBackground, in: Capsule())
+                    .overlay(Capsule().strokeBorder(Theme.cardBorder, lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .help("管理本地對話紀錄與硬碟空間瘦身")
 
                 Button {
                     ShareExporter.shareAllCards(store: store, showRemaining: settings.showRemaining)
