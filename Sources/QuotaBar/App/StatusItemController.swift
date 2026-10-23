@@ -76,7 +76,9 @@ final class StatusItemController: NSObject, ObservableObject, NSPopoverDelegate 
             view.layoutSubtreeIfNeeded()
             let fitting = view.fittingSize
             if fitting.height > 10 && fitting.width > 10 {
-                self.popover.contentSize = NSSize(width: max(392, fitting.width), height: fitting.height)
+                let maxH = (NSScreen.main?.visibleFrame.height ?? 800) - 50
+                let targetH = min(fitting.height, maxH)
+                self.popover.contentSize = NSSize(width: max(392, fitting.width), height: targetH)
             }
         }
     }
