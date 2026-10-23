@@ -513,6 +513,55 @@ public actor ConversationManager {
         return slices.map { Data($0) }
     }
 
+    private func cleanMessageText(_ raw: String) -> String {
+        var text = raw
+
+        // Remove <thinking>...</thinking>
+        while let rStart = text.range(of: "<thinking>"), let rEnd = text.range(of: "</thinking>") {
+            if rStart.lowerBound < rEnd.upperBound {
+                text.removeSubrange(rStart.lowerBound..<rEnd.upperBound)
+            } else { break }
+        }
+        // Remove <system-reminder>...</system-reminder>
+        while let rStart = text.range(of: "<system-reminder>"), let rEnd = text.range(of: "</system-reminder>") {
+            if rStart.lowerBound < rEnd.upperBound {
+                text.removeSubrange(rStart.lowerBound..<rEnd.upperBound)
+            } else { break }
+        }
+        // Remove <CONTEXT_SUMMARY>...</CONTEXT_SUMMARY>
+        while let rStart = text.range(of: "<CONTEXT_SUMMARY>"), let rEnd = text.range(of: "</CONTEXT_SUMMARY>") {
+            if rStart.lowerBound < rEnd.upperBound {
+                text.removeSubrange(rStart.lowerBound..<rEnd.upperBound)
+            } else { break }
+        }
+        // Remove <ADDITIONAL_METADATA>...</ADDITIONAL_METADATA>
+        while let rStart = text.range(of: "<ADDITIONAL_METADATA>"), let rEnd = text.range(of: "</ADDITIONAL_METADATA>") {
+            if rStart.lowerBound < rEnd.upperBound {
+                text.removeSubrange(rStart.lowerBound..<rEnd.upperBound)
+            } else { break }
+        }
+
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func isNoiseMessage(text: String, isUser: Bool) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return true }
+
+        if isUser {
+            // Filter internal task notifications and subagent messages
+            if trimmed.hasPrefix("<task-notification") || trimmed.contains("<task-id>") { return true }
+            if trimmed.hasPrefix("<agent-message") || trimmed.contains("Another Claude session sent a message:") { return true }
+            if trimmed.contains("[Subagent hand-back]") { return true }
+            // Filter system injections enclosed in brackets
+            if trimmed.hasPrefix("[Earlier usage-limit") || trimmed.hasPrefix("[Usage limit reached") || trimmed.hasPrefix("[Request interrupted") { return true }
+            // Filter system notices
+            if trimmed.contains("<SYSTEM_MESSAGE>") || trimmed.contains("not actually sent by the user") { return true }
+        }
+
+        return false
+    }
+
     private func parseClaudeMessages(lines: [Data]) -> [ConversationMessage] {
         var result: [ConversationMessage] = []
         for line in lines {
@@ -520,37 +569,40 @@ public actor ConversationManager {
                   let type = obj["type"] as? String
             else { continue }
 
+            // Skip internal system meta events (harness injections, usage notes, subagents)
+            if let isMeta = obj["isMeta"] as? Bool, isMeta { continue }
+
             let ts = (obj["timestamp"] as? String).flatMap(Parse.date)
             if type == "user" {
+                var text = ""
                 if let msg = obj["message"] as? [String: Any] {
-                    if let text = msg["content"] as? String, !text.isEmpty {
-                        result.append(ConversationMessage(role: "User", text: text, timestamp: ts))
+                    if let s = msg["content"] as? String {
+                        text = s
                     } else if let arr = msg["content"] as? [[String: Any]] {
-                        var combined = ""
-                        for item in arr {
-                            if let text = item["text"] as? String, !text.isEmpty {
-                                combined += (combined.isEmpty ? "" : "\n") + text
-                            }
-                        }
-                        if !combined.isEmpty {
-                            result.append(ConversationMessage(role: "User", text: combined, timestamp: ts))
-                        }
+                        text = arr.compactMap { $0["text"] as? String }.joined(separator: "\n")
+                    }
+                }
+                text = cleanMessageText(text)
+                if !isNoiseMessage(text: text, isUser: true) {
+                    // Avoid consecutive identical messages
+                    if result.last?.text != text || result.last?.role != "User" {
+                        result.append(ConversationMessage(role: "User", text: text, timestamp: ts))
                     }
                 }
             } else if type == "assistant" {
+                var text = ""
                 if let msg = obj["message"] as? [String: Any] {
-                    if let text = msg["content"] as? String, !text.isEmpty {
-                        result.append(ConversationMessage(role: "Claude", text: text, timestamp: ts))
+                    if let s = msg["content"] as? String {
+                        text = s
                     } else if let arr = msg["content"] as? [[String: Any]] {
-                        var combined = ""
-                        for item in arr {
-                            if let text = item["text"] as? String, !text.isEmpty {
-                                combined += (combined.isEmpty ? "" : "\n") + text
-                            }
-                        }
-                        if !combined.isEmpty {
-                            result.append(ConversationMessage(role: "Claude", text: combined, timestamp: ts))
-                        }
+                        text = arr.compactMap { $0["text"] as? String }.joined(separator: "\n")
+                    }
+                }
+                text = cleanMessageText(text)
+                if !isNoiseMessage(text: text, isUser: false) {
+                    // Avoid consecutive identical messages (e.g. repeated rate limit errors)
+                    if result.last?.text != text || result.last?.role != "Claude" {
+                        result.append(ConversationMessage(role: "Claude", text: text, timestamp: ts))
                     }
                 }
             }
@@ -574,12 +626,19 @@ public actor ConversationManager {
                         clean = parts[1].components(separatedBy: "</USER_REQUEST>").first ?? clean
                     }
                 }
-                clean = clean.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !clean.isEmpty {
-                    result.append(ConversationMessage(role: "User", text: clean, timestamp: ts))
+                clean = cleanMessageText(clean)
+                if !isNoiseMessage(text: clean, isUser: true) {
+                    if result.last?.text != clean || result.last?.role != "User" {
+                        result.append(ConversationMessage(role: "User", text: clean, timestamp: ts))
+                    }
                 }
             } else if type == "PLANNER_RESPONSE", let raw = obj["content"] as? String, !raw.isEmpty {
-                result.append(ConversationMessage(role: "Antigravity", text: raw, timestamp: ts))
+                let clean = cleanMessageText(raw)
+                if !isNoiseMessage(text: clean, isUser: false) {
+                    if result.last?.text != clean || result.last?.role != "Antigravity" {
+                        result.append(ConversationMessage(role: "Antigravity", text: clean, timestamp: ts))
+                    }
+                }
             }
         }
         return result
