@@ -31,8 +31,8 @@ public struct ConversationManagerView: View {
     }
 
     enum SortOption: String, CaseIterable, Identifiable {
-        case sizeDesc = "依容量大小 ↓"
-        case dateDesc = "依更新時間 ↓"
+        case sizeDesc = "依容量大小"
+        case dateDesc = "依更新時間"
         var id: String { rawValue }
     }
 
@@ -247,8 +247,11 @@ public struct ConversationManagerView: View {
                     HStack(spacing: 3) {
                         Text(sortOption.rawValue)
                             .font(.system(size: 10.5, weight: .semibold, design: .rounded))
-                        Image(systemName: "chevron.up.chevron.down")
-                            .font(.system(size: 8))
+                            .lineLimit(1)
+                            .fixedSize()
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 7.5, weight: .bold))
+                            .foregroundStyle(.white.opacity(0.60))
                     }
                     .foregroundStyle(.white.opacity(0.85))
                     .padding(.horizontal, 7)
@@ -257,6 +260,7 @@ public struct ConversationManagerView: View {
                     .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Theme.cardBorder, lineWidth: 1))
                 }
                 .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
                 .fixedSize()
             }
 
