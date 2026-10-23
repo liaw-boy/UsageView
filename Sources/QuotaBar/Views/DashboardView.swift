@@ -41,7 +41,7 @@ struct DashboardView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
-            .frame(width: (controller.showingConversations || controller.showingStats) ? 396 : 368)
+            .frame(width: 392)
             .fixedSize(horizontal: true, vertical: true)
             .background(Theme.panelBackground)
             .environment(\.colorScheme, .dark)
@@ -221,19 +221,21 @@ struct DashboardView: View {
     @State private var sharedDashboardToast = false
 
     private var footer: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 5) {
             Button {
                 withAnimation(.easeInOut(duration: 0.16)) {
                     controller.showingSettings.toggle()
                 }
             } label: {
-                HStack(spacing: 4) {
+                HStack(spacing: 3.5) {
                     Image(systemName: controller.showingSettings ? "chevron.left" : "slider.horizontal.3")
-                    Text(controller.showingSettings ? "返回額度面板" : "設定與更新")
+                    Text(controller.showingSettings ? "返回額度面板" : "設定")
                 }
-                .font(.system(size: 11.5, weight: .semibold, design: .rounded))
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
                 .foregroundStyle(.white.opacity(0.85))
-                .padding(.horizontal, 9)
+                .padding(.horizontal, 8)
                 .padding(.vertical, 4)
                 .background(Theme.cardBackground, in: Capsule())
                 .overlay(Capsule().strokeBorder(Theme.cardBorder, lineWidth: 1))
@@ -245,14 +247,16 @@ struct DashboardView: View {
                     controller.statsProvider = nil
                     withAnimation(.easeInOut(duration: 0.16)) { controller.showingStats.toggle() }
                 } label: {
-                    HStack(spacing: 3.5) {
+                    HStack(spacing: 3) {
                         Image(systemName: "chart.bar.xaxis")
-                            .font(.system(size: 10.5, weight: .semibold))
+                            .font(.system(size: 10))
                         Text("統計表")
                             .font(.system(size: 11, weight: .semibold, design: .rounded))
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
                     }
                     .foregroundStyle(.white.opacity(0.85))
-                    .padding(.horizontal, 8.5)
+                    .padding(.horizontal, 7.5)
                     .padding(.vertical, 4)
                     .background(Theme.cardBackground, in: Capsule())
                     .overlay(Capsule().strokeBorder(Theme.cardBorder, lineWidth: 1))
@@ -263,14 +267,16 @@ struct DashboardView: View {
                 Button {
                     withAnimation(.easeInOut(duration: 0.16)) { controller.showingConversations.toggle() }
                 } label: {
-                    HStack(spacing: 3.5) {
+                    HStack(spacing: 3) {
                         Image(systemName: "bubble.left.and.bubble.right")
-                            .font(.system(size: 10.5, weight: .semibold))
+                            .font(.system(size: 10))
                         Text("對話管理")
                             .font(.system(size: 11, weight: .semibold, design: .rounded))
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
                     }
                     .foregroundStyle(.white.opacity(0.85))
-                    .padding(.horizontal, 8.5)
+                    .padding(.horizontal, 7.5)
                     .padding(.vertical, 4)
                     .background(Theme.cardBackground, in: Capsule())
                     .overlay(Capsule().strokeBorder(Theme.cardBorder, lineWidth: 1))
@@ -286,29 +292,33 @@ struct DashboardView: View {
                         withAnimation(.easeInOut(duration: 0.2)) { sharedDashboardToast = false }
                     }
                 } label: {
-                    HStack(spacing: 3.5) {
+                    HStack(spacing: 3) {
                         Image(systemName: sharedDashboardToast ? "checkmark.circle.fill" : "square.and.arrow.up")
-                            .font(.system(size: 10.5, weight: .semibold))
-                        Text(sharedDashboardToast ? "已複製並開啟分享" : "分享")
+                            .font(.system(size: 10))
+                        Text(sharedDashboardToast ? "已複製" : "分享")
                             .font(.system(size: 11, weight: .semibold, design: .rounded))
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
                     }
                     .foregroundStyle(sharedDashboardToast ? Color(red: 0.30, green: 0.88, blue: 0.56) : .white.opacity(0.82))
-                    .padding(.horizontal, 8.5)
+                    .padding(.horizontal, 7.5)
                     .padding(.vertical, 4)
                     .background(Theme.cardBackground, in: Capsule())
                     .overlay(Capsule().strokeBorder(Theme.cardBorder, lineWidth: 1))
                 }
                 .buttonStyle(.plain)
-                .help("開啟 macOS 原生分享選單（AirDrop / 訊息 / 備忘錄）並同步複製總覽圖卡到剪貼簿")
+                .help("開啟 macOS 原生分享選單並同步複製總覽圖卡到剪貼簿")
             }
 
-            Spacer()
+            Spacer(minLength: 4)
 
             Button("結束") {
                 NSApp.terminate(nil)
             }
             .buttonStyle(.plain)
             .font(.system(size: 11.5, weight: .medium))
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
             .foregroundStyle(.white.opacity(0.60))
         }
     }
