@@ -114,33 +114,6 @@ struct DashboardView: View {
             .help("點擊切換「已用 %」與「剩餘 %」")
 
             Button {
-                controller.statsProvider = nil
-                withAnimation(.easeInOut(duration: 0.16)) { controller.showingStats = true }
-            } label: {
-                Image(systemName: "chart.bar.xaxis")
-                    .font(.system(size: 11.5, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.90))
-                    .frame(width: 25, height: 25)
-                    .background(Theme.cardBackground, in: Circle())
-                    .overlay(Circle().strokeBorder(Theme.cardBorder, lineWidth: 1))
-            }
-            .buttonStyle(.plain)
-            .help("查看 Token 與花費統計表（當日 · 週 · 月）")
-
-            Button {
-                withAnimation(.easeInOut(duration: 0.16)) { controller.showingConversations = true }
-            } label: {
-                Image(systemName: "bubble.left.and.bubble.right")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.90))
-                    .frame(width: 25, height: 25)
-                    .background(Theme.cardBackground, in: Circle())
-                    .overlay(Circle().strokeBorder(Theme.cardBorder, lineWidth: 1))
-            }
-            .buttonStyle(.plain)
-            .help("查看對話紀錄與空間管理（清理、搜尋、匯出）")
-
-            Button {
                 Task { await store.refresh(manual: true) }
             } label: {
                 Image(systemName: "arrow.clockwise")
