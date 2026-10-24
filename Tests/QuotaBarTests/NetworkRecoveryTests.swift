@@ -104,3 +104,26 @@ final class NetworkRecoveryTests: XCTestCase {
         XCTAssertEqual(counter.count, 0)
     }
 }
+
+final class StaleErrorVisibilityTests: XCTestCase {
+    private func state(error: String?, hasSnapshot: Bool) -> ProviderState {
+        var s = ProviderState()
+        s.error = error
+        if hasSnapshot {
+            s.snapshot = ProviderSnapshot(provider: .claude, lines: [])
+        }
+        return s
+    }
+
+    func testStaleErrorIsSurfacedWhenOnline() {
+        let s = state(error: "Token 已過期", hasSnapshot: true)
+        XCTAssertEqual(s.staleErrorMessage(isOffline: false), "Token 已過期")
+    }
+
+    func testStaleErrorHiddenWhenOfflineOrFresh() {
+        XCTAssertNil(state(error: "Token 已過期", hasSnapshot: true).staleErrorMessage(isOffline: true))
+        XCTAssertNil(state(error: nil, hasSnapshot: true).staleErrorMessage(isOffline: false))
+        // Without a snapshot the card already shows the error as its main text.
+        XCTAssertNil(state(error: "x", hasSnapshot: false).staleErrorMessage(isOffline: false))
+    }
+}

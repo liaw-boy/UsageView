@@ -10,6 +10,13 @@ public struct ProviderState: Sendable {
 
     public init() {}
     public var isStale: Bool { error != nil && snapshot != nil }
+
+    /// The failure reason to show next to cached numbers, so a stale card never fails silently.
+    /// Hidden while offline (the offline note covers it) and when there is no snapshot (the error is the card's main text).
+    public func staleErrorMessage(isOffline: Bool) -> String? {
+        guard snapshot != nil, !isOffline else { return nil }
+        return error
+    }
 }
 
 /// Stale-while-revalidate snapshot store:

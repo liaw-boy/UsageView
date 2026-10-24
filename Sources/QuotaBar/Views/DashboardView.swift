@@ -415,6 +415,14 @@ struct ProviderCardView: View {
                     .opacity(state.isStale ? 0.78 : 1.0)
                 }
 
+                if let message = state.staleErrorMessage(isOffline: isOffline) {
+                    Text(message)
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.orange)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
                 if let snap = state.snapshot, snap.localSpend?.hasAnyUsage == true || snap.extraUsageText != nil {
                     CardSpendFooterRow(spend: snap.localSpend, extraUsageText: snap.extraUsageText, onOpenStats: onOpenStats)
                 }
