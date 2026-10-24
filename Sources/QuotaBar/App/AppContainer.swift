@@ -50,8 +50,8 @@ final class AppContainer {
         // Only fetches providers that have no cached snapshot or whose persisted `fetchedAt` has exceeded `refreshMinutes`.
         // Restarting the app never re-fetches fresh cached providers!
         Task { await store.refresh(manual: false) }
-        // Automatically check GitHub for new releases on launch.
-        Task { await updater.checkForUpdates() }
+        // Check GitHub for new releases on launch and every few hours while the app stays running.
+        updater.startPeriodicChecks()
 
         // When the user enables tracking for a provider that has no recent snapshot, check if due.
         cancellable = settings.$trackedProviders

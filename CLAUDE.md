@@ -28,7 +28,7 @@ QUOTABAR_LOG=1 swift run                     # 除錯：印出所有通過白名
 - `Services/Credentials.swift`：`CredentialSource` 抽象（Keychain / 檔案 / env），測試時可注入假實作。憑證只讀不寫，token 只存記憶體；`HTTPClient` 不跟隨任何轉址（`EndpointGuard` 只檢查原始 URL）。
 - `Stores/SnapshotStore.swift`：Stale-While-Revalidate 快取，以磁碟上的 `fetchedAt` 與 `refreshMinutes` 決定是否重打 API（重啟 App 或開面板都不會多打）；失敗時保留舊快照並對 429 退避。
 - `Stores/SettingsStore.swift`：以 `UserDefaults` 儲存，建構子可注入 `UserDefaults`（測試用獨立 suite）。每家 AI 有三層獨立開關：追蹤／面板／狀態列；未追蹤者完全不讀憑證、不發請求。
-- `LocalUsageScanner` 離線掃描 `~/.claude/projects`、`~/.codex/sessions`、`~/.gemini/antigravity*` 計算 token 與 API 等效花費；`ConversationManager` 掃描 Claude / Codex / Antigravity 對話並移至垃圾桶（「釋放空間」門檻由 `SettingsStore.cleanupMinAgeDays`/`cleanupMinSizeMB` 設定）；`UpdateService` 從 GitHub Release 檢查/下載/熱替換更新。
+- `LocalUsageScanner` 離線掃描 `~/.claude/projects`、`~/.codex/sessions`、`~/.gemini/antigravity*` 計算 token 與 API 等效花費；`ConversationManager` 掃描 Claude / Codex / Antigravity 對話並移至垃圾桶（「釋放空間」門檻由 `SettingsStore.cleanupMinAgeDays`/`cleanupMinSizeMB` 設定）；`UpdateService` 從 GitHub Release 檢查/下載/熱替換更新（每 6 小時檢查一次；唯一不經 `EndpointGuard` 的下載，改用 `gh`/`curl` 抓 `UsageView.app.zip` 與 `.sig`，以內嵌 Ed25519 公鑰驗證通過才解壓安裝，見 `UpdateSecurity.swift`）。
 
 **App（`Sources/QuotaBar`）**
 - `App/AppContainer.swift`：`@main` 的 `AppDelegate`（純 AppKit、`.accessory` 無 Dock 圖示）+ `AppContainer` composition root 串起 settings/store/updater/notifier/status item；`QuotaNotifier` 負責 80%/95% 與「滿血復活」通知；`DocsImageExporter` 產生 README 圖片。
@@ -37,6 +37,7 @@ QUOTABAR_LOG=1 swift run                     # 除錯：印出所有通過白名
 
 ## 注意事項
 
+- 發版簽章：`swift scripts/gen_signing_key.swift <私鑰路徑>` 產生金鑰（私鑰不進 repo），把印出的公鑰貼到 `UpdateSecurity.swift` 的 `publicKeyBase64`；打包時設 `UPDATE_SIGNING_KEY=<私鑰路徑> ./bundle.sh` 產生 `.sig`，release 要同時上傳 zip 與 `.sig`。正式發版請加 `RELEASE=1`（沒有私鑰會直接失敗）。公鑰為空或沒有 `.sig` 時自動更新一律拒絕。
 - 版本號寫死在 `bundle.sh`（`CFBundleShortVersionString` 與結尾的 echo 兩處），並需與 GitHub Release tag 對應，自動更新才正確；發版/tag 需先徵得使用者同意。
 - 狀態列文字用隱藏的 `"100%"` 等寬模板鎖寬，避免輪播時寬度跳動，改狀態列視圖時要保留這個行為。
 - 原始碼與測試不可內嵌金鑰、個人路徑或真實帳號資料（測試資料一律虛構）。

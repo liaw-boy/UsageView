@@ -13,3 +13,4 @@ reference-*/
 *.key
 credentials*.json
 auth.json
+*.zip.sig

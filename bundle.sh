@@ -34,8 +34,20 @@ EOF
 codesign --force --sign - $APP
 
 # Package UsageView.app.zip (for in-app auto-updater) and UsageView.dmg (for drag-to-Applications installer)
-rm -f UsageView.app.zip UsageView.dmg
+rm -f UsageView.app.zip UsageView.app.zip.sig UsageView.dmg
 ditto -c -k --keepParent $APP UsageView.app.zip
+
+# Detached Ed25519 signature that the in-app updater verifies before installing.
+# Set UPDATE_SIGNING_KEY to the private key file (see scripts/gen_signing_key.swift); without it the zip is unsigned
+# and the auto-updater will refuse to install it.
+if [ -n "${UPDATE_SIGNING_KEY:-}" ]; then
+  swift scripts/sign_update.swift UsageView.app.zip "$UPDATE_SIGNING_KEY"
+elif [ "${RELEASE:-}" = "1" ]; then
+  echo "ERROR: RELEASE=1 requires UPDATE_SIGNING_KEY (an unsigned zip cannot be auto-installed)." >&2
+  exit 1
+else
+  echo "WARNING: UPDATE_SIGNING_KEY not set; UsageView.app.zip is unsigned and cannot be auto-installed."
+fi
 
 DMG_STAGE=$(mktemp -d)/dmg_stage
 mkdir -p "$DMG_STAGE"
