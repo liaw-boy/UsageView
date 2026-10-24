@@ -19,6 +19,7 @@ public struct ProviderState: Sendable {
 public final class SnapshotStore: ObservableObject {
     @Published public private(set) var states: [ProviderID: ProviderState] = [:]
     @Published public private(set) var carouselTick: Int = 0
+    @Published public private(set) var isOnline = true
 
     public static let manualThrottle: TimeInterval = 15
     public static let providerTimeout: TimeInterval = 120
@@ -31,11 +32,17 @@ public final class SnapshotStore: ObservableObject {
     private var refreshTimer: Timer?
     private var carouselTimer: Timer?
     private var lastRefresh: Date?
+    private let network: NetworkMonitoring?
+    private let networkRestoreDelay: TimeInterval
+    private var pendingNetworkRefresh: Task<Void, Never>?
     private var cancellables = Set<AnyCancellable>()
 
-    public init(runtimes: [ProviderRuntime] = ProviderCatalog.all(), settings: SettingsStore, cacheURL: URL? = nil) {
+    public init(runtimes: [ProviderRuntime] = ProviderCatalog.all(), settings: SettingsStore, cacheURL: URL? = nil,
+                network: NetworkMonitoring? = nil, networkRestoreDelay: TimeInterval = 2) {
         self.runtimes = runtimes
         self.settings = settings
+        self.network = network
+        self.networkRestoreDelay = networkRestoreDelay
         self.scanLocalMetadata = (cacheURL == nil)
         self.cacheURL = cacheURL ?? FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("QuotaBar/snapshots.json")
@@ -46,6 +53,10 @@ public final class SnapshotStore: ObservableObject {
             .removeDuplicates()
             .sink { [weak self] m in self?.scheduleRefreshTimer(minutes: m) }
             .store(in: &cancellables)
+
+        network?.start { [weak self] online in
+            MainActor.assumeIsolated { self?.networkChanged(online: online) }
+        }
 
         settings.$carouselSeconds
             .removeDuplicates()
@@ -82,6 +93,30 @@ public final class SnapshotStore: ObservableObject {
         refreshTimer = t
     }
 
+    /// Tracks connectivity. Going offline pauses automatic fetches; coming back online re-checks for due providers
+    /// after a short debounce (Wi-Fi often reports "satisfied" a moment before requests actually succeed).
+    /// Never fetches more than `refresh()` already would: providers whose cache is still fresh are skipped.
+    func networkChanged(online: Bool) {
+        isOnline = online
+        pendingNetworkRefresh?.cancel()
+        guard online else { return }
+        scheduleDelayedRefresh(after: networkRestoreDelay)
+    }
+
+    /// Called after the Mac wakes from sleep: the network is usually not ready yet, so wait before checking.
+    public func systemDidWake(delay: TimeInterval = 4) {
+        pendingNetworkRefresh?.cancel()
+        scheduleDelayedRefresh(after: delay)
+    }
+
+    private func scheduleDelayedRefresh(after delay: TimeInterval) {
+        pendingNetworkRefresh = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled else { return }
+            await self?.refresh(manual: false)
+        }
+    }
+
     private func scheduleCarouselTimer(seconds: Int) {
         carouselTimer?.invalidate()
         let interval = TimeInterval(max(seconds, 2))
@@ -98,6 +133,7 @@ public final class SnapshotStore: ObservableObject {
     /// Only refreshes providers whose persisted `fetchedAt` is older than the configured `refreshMinutes`
     /// (or has no snapshot yet), unless `manual: true` is explicitly requested by the user.
     public func refresh(manual: Bool = false) async {
+        if !manual, !isOnline { return }
         let now = Date()
         let anyError = trackedProviders.contains { states[$0]?.error != nil }
         if manual, !anyError, let last = lastRefresh, now.timeIntervalSince(last) < Self.manualThrottle { return }

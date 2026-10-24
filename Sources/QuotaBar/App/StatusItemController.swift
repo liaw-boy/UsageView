@@ -63,7 +63,7 @@ final class StatusItemController: NSObject, ObservableObject, NSPopoverDelegate 
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in await self?.store.refresh() }
+            Task { @MainActor in self?.store.systemDidWake() }
         }
 
         updateStrip()

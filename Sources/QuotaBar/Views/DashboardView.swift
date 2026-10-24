@@ -180,6 +180,7 @@ struct DashboardView: View {
                         state: store.states[id] ?? ProviderState(),
                         showRemaining: settings.showRemaining,
                         onToggleMode: { settings.showRemaining.toggle() },
+                        isOffline: !store.isOnline,
                         onOpenStats: {
                             controller.statsProvider = id
                             withAnimation(.easeInOut(duration: 0.16)) { controller.showingStats = true }
@@ -306,6 +307,7 @@ struct ProviderCardView: View {
     let showRemaining: Bool
     let onToggleMode: () -> Void
     var isSnapshotExport: Bool = false
+    var isOffline: Bool = false
     var onOpenStats: (() -> Void)? = nil
 
     @State private var isHovered = false
@@ -338,7 +340,7 @@ struct ProviderCardView: View {
                         PlanBadgeView(plan: plan, color: Theme.brandColor(provider))
                     }
 
-                    if let error = state.error, state.snapshot != nil {
+                    if state.snapshot != nil, isOffline || state.error != nil {
                         HStack(spacing: 2.5) {
                             Image(systemName: "clock.arrow.circlepath")
                                 .font(.system(size: 9))
@@ -349,7 +351,9 @@ struct ProviderCardView: View {
                         .padding(.horizontal, 5)
                         .padding(.vertical, 1)
                         .background(Color.white.opacity(0.07), in: Capsule())
-                        .help("官方 API 暫時冷卻中，目前顯示上次成功同步的快取資料（\(error)）")
+                        .help(isOffline
+                              ? "目前離線，顯示上次成功同步的快取資料，恢復連線後會自動更新"
+                              : "官方 API 暫時冷卻中，目前顯示上次成功同步的快取資料（\(state.error ?? "")）")
                     }
 
                     Spacer(minLength: 2)
@@ -383,7 +387,11 @@ struct ProviderCardView: View {
                 }
 
                 if lines.isEmpty {
-                    if let error = state.error {
+                    if isOffline {
+                        Text("目前離線，恢復連線後會自動更新")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.white.opacity(0.55))
+                    } else if let error = state.error {
                         Text(error)
                             .font(.system(size: 11))
                             .foregroundStyle(.orange)

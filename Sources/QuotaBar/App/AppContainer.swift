@@ -44,7 +44,7 @@ final class AppContainer {
     private var cancellable: AnyCancellable?
 
     init() {
-        store = SnapshotStore(settings: settings)
+        store = SnapshotStore(settings: settings, network: NetworkMonitor())
         notifier = QuotaNotifier(store: store, settings: settings)
         statusItem = StatusItemController(store: store, settings: settings, updater: updater)
         // Only fetches providers that have no cached snapshot or whose persisted `fetchedAt` has exceeded `refreshMinutes`.
