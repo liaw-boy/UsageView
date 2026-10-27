@@ -7,6 +7,7 @@ public struct UsageStatisticsView: View {
     @ObservedObject var store: SnapshotStore
     var initialProvider: ProviderID?
     var onBack: () -> Void
+    var embedded = false
 
     @State private var selectedFilter: ProviderFilter = .all
     @State private var modelPeriod: MetricPeriod = .today
@@ -31,7 +32,8 @@ public struct UsageStatisticsView: View {
         var id: String { rawValue }
     }
 
-    public init(store: SnapshotStore, initialProvider: ProviderID? = nil, onBack: @escaping () -> Void) {
+    public init(store: SnapshotStore, initialProvider: ProviderID? = nil, embedded: Bool = false, onBack: @escaping () -> Void) {
+        self.embedded = embedded
         self.store = store
         self.initialProvider = initialProvider
         self.onBack = onBack
@@ -83,10 +85,11 @@ public struct UsageStatisticsView: View {
             res.monthTok += s.monthTokens
 
             for m in s.models {
-                let name = "\(m.model)"
+                let name = "\(m.vendor ?? "")|\(m.model)"
                 let existing = modelMap[name]
                 modelMap[name] = ModelSpendBreakdown(
-                    model: name,
+                    model: m.model,
+                    vendor: m.vendor,
                     todayCostUSD: (existing?.todayCostUSD ?? 0) + m.todayCostUSD,
                     todayTokens: (existing?.todayTokens ?? 0) + m.todayTokens,
                     weekCostUSD: (existing?.weekCostUSD ?? 0) + m.weekCostUSD,
@@ -125,51 +128,60 @@ public struct UsageStatisticsView: View {
 
     // MARK: - Header
 
+    @ViewBuilder
     private var header: some View {
-        HStack(spacing: 6) {
-            Button {
-                onBack()
-            } label: {
-                HStack(spacing: 3.5) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 12, weight: .bold))
-                    Text("額度面板")
-                        .font(.system(size: 12.5, weight: .semibold, design: .rounded))
+        if embedded {
+            PageHeader(title: "用量統計", subtitle: "Token 用量與 API 等效花費（估算）") { copyButton }
+        } else {
+            HStack(spacing: 6) {
+                Button {
+                    onBack()
+                } label: {
+                    HStack(spacing: 3.5) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 12, weight: .bold))
+                        Text("額度面板")
+                            .font(.system(size: 12.5, weight: .semibold, design: .rounded))
+                    }
+                    .foregroundStyle(.white.opacity(0.88))
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 4.5)
+                    .background(Theme.cardBackground, in: Capsule())
+                    .overlay(Capsule().strokeBorder(Theme.cardBorder, lineWidth: 1))
                 }
-                .foregroundStyle(.white.opacity(0.88))
-                .padding(.horizontal, 9)
-                .padding(.vertical, 4.5)
-                .background(Theme.cardBackground, in: Capsule())
-                .overlay(Capsule().strokeBorder(Theme.cardBorder, lineWidth: 1))
+                .buttonStyle(.plain)
+
+                Spacer()
+
+                Text("額度使用統計表")
+                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+
+                Spacer()
+
+                copyButton
             }
-            .buttonStyle(.plain)
-
-            Spacer()
-
-            Text("額度使用統計表")
-                .font(.system(size: 15, weight: .bold, design: .rounded))
-                .foregroundStyle(.white)
-
-            Spacer()
-
-            Button {
-                copyMarkdownTable()
-            } label: {
-                HStack(spacing: 3.5) {
-                    Image(systemName: copiedToast ? "checkmark" : "doc.on.doc")
-                        .font(.system(size: 11, weight: .semibold))
-                    Text(copiedToast ? "已複製" : "複製")
-                        .font(.system(size: 11.5, weight: .semibold, design: .rounded))
-                }
-                .foregroundStyle(copiedToast ? Color(red: 0.30, green: 0.88, blue: 0.56) : .white.opacity(0.88))
-                .padding(.horizontal, 9)
-                .padding(.vertical, 4.5)
-                .background(Theme.cardBackground, in: Capsule())
-                .overlay(Capsule().strokeBorder(Theme.cardBorder, lineWidth: 1))
-            }
-            .buttonStyle(.plain)
-            .help("複製 Markdown 格式統計表格至剪貼簿")
         }
+    }
+
+    private var copyButton: some View {
+        Button {
+            copyMarkdownTable()
+        } label: {
+            HStack(spacing: 3.5) {
+                Image(systemName: copiedToast ? "checkmark" : "doc.on.doc")
+                    .font(.system(size: 11, weight: .semibold))
+                Text(copiedToast ? "已複製" : "複製")
+                    .font(.system(size: 11.5, weight: .semibold, design: .rounded))
+            }
+            .foregroundStyle(copiedToast ? Color(red: 0.30, green: 0.88, blue: 0.56) : .white.opacity(0.88))
+            .padding(.horizontal, 9)
+            .padding(.vertical, 4.5)
+            .background(Theme.cardBackground, in: Capsule())
+            .overlay(Capsule().strokeBorder(Theme.cardBorder, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .help("複製 Markdown 格式統計表格至剪貼簿")
     }
 
     // MARK: - Provider Filter
@@ -350,12 +362,17 @@ public struct UsageStatisticsView: View {
             .padding(.horizontal, 2)
 
             let maxCost = models.map { periodCost($0, period: modelPeriod) }.max() ?? 1.0
-            let sortedModels = models.sorted {
+            let rankedModels = models.sorted {
                 let cost0 = periodCost($0, period: modelPeriod)
                 let cost1 = periodCost($1, period: modelPeriod)
                 if cost0 != cost1 { return cost0 > cost1 }
                 return periodTokens($0, period: modelPeriod) > periodTokens($1, period: modelPeriod)
             }
+            // Models with no usage in the selected period only add noise; summarize them in one line.
+            let sortedModels = rankedModels.filter {
+                periodCost($0, period: modelPeriod) > 0 || periodTokens($0, period: modelPeriod) > 0
+            }
+            let idleCount = rankedModels.count - sortedModels.count
 
             VStack(spacing: 7) {
                 if sortedModels.isEmpty {
@@ -371,10 +388,23 @@ public struct UsageStatisticsView: View {
 
                         VStack(alignment: .leading, spacing: 2.5) {
                             HStack {
+                                if let vendor = m.vendor {
+                                    VendorLogoView(vendor: vendor, size: 11)
+                                }
                                 Text(m.model)
                                     .font(.system(size: 11.5, weight: .semibold, design: .rounded))
                                     .foregroundStyle(.white.opacity(0.92))
                                     .lineLimit(1)
+                                if let vendor = m.vendor {
+                                    Text(OpenCodeVendor.displayName(vendor))
+                                        .font(.system(size: 9.5, weight: .semibold, design: .rounded))
+                                        .foregroundStyle(.white.opacity(0.62))
+                                        .padding(.horizontal, 5)
+                                        .padding(.vertical, 1)
+                                        .background(Color.white.opacity(0.08), in: Capsule())
+                                        .lineLimit(1)
+                                        .fixedSize()
+                                }
                                 Spacer(minLength: 4)
                                 Text(formatTokens(tok))
                                     .font(.system(size: 11, weight: .medium, design: .rounded))
@@ -404,6 +434,13 @@ public struct UsageStatisticsView: View {
                             .frame(height: 4)
                         }
                         .padding(.vertical, 2.5)
+                    }
+                    if idleCount > 0 {
+                        Text("另有 \(idleCount) 個模型在此期間無用量")
+                            .font(.system(size: 10.5, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.40))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.top, 2)
                     }
                 }
             }
@@ -552,7 +589,7 @@ public struct UsageStatisticsView: View {
             md += "| 模型 | 當日花費 | 本週花費 | 本月花費 | 本月 Token |\n"
             md += "| :--- | :--- | :--- | :--- | :--- |\n"
             for m in stats.models {
-                md += "| \(m.model) | $\(String(format: "%.2f", m.todayCostUSD)) | $\(String(format: "%.2f", m.weekCostUSD)) | $\(String(format: "%.2f", m.monthCostUSD)) | \(formatTokens(m.monthTokens)) |\n"
+                md += "| \(m.vendor.map { "\(OpenCodeVendor.displayName($0)) · " } ?? "")\(m.model) | $\(String(format: "%.2f", m.todayCostUSD)) | $\(String(format: "%.2f", m.weekCostUSD)) | $\(String(format: "%.2f", m.monthCostUSD)) | \(formatTokens(m.monthTokens)) |\n"
             }
         }
 

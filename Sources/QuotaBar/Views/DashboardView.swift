@@ -71,9 +71,7 @@ struct DashboardView: View {
 
                     if case .available(let newVer, _, _) = updater.status {
                         Button {
-                            withAnimation(.easeInOut(duration: 0.16)) {
-                                controller.showingSettings = true
-                            }
+                            controller.openMainWindow(.settings)
                             Task { await updater.performUpdate() }
                         } label: {
                             HStack(spacing: 3) {
@@ -134,11 +132,17 @@ struct DashboardView: View {
         }
     }
 
+    private var syncInterval: String {
+        let m = settings.refreshMinutes
+        guard settings.isTracked(.claude), m < SnapshotStore.claudeMinimumRefreshMinutes else { return "每 \(m)m 自動同步" }
+        return "每 \(m)m 自動同步（Claude 每 \(SnapshotStore.claudeMinimumRefreshMinutes)m）"
+    }
+
     private var updatedSubtitle: String {
-        guard let date = store.lastUpdated else { return "唯讀查詢 · 每 \(settings.refreshMinutes) 分鐘自動更新" }
+        guard let date = store.lastUpdated else { return "唯讀查詢 · \(syncInterval)" }
         let secs = max(0, Int(Date().timeIntervalSince(date)))
-        if secs < 30 { return "剛剛更新 · 每 \(settings.refreshMinutes)m 自動同步" }
-        if secs < 3600 { return "更新於 \(secs / 60) 分鐘前 · 每 \(settings.refreshMinutes)m 自動同步" }
+        if secs < 30 { return "剛剛更新 · \(syncInterval)" }
+        if secs < 3600 { return "更新於 \(secs / 60) 分鐘前 · \(syncInterval)" }
         return "更新於 \(secs / 3600) 小時前 · 點擊右上立即重試"
     }
 
@@ -156,7 +160,7 @@ struct DashboardView: View {
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.85))
                 Button("前往設定調整") {
-                    withAnimation(.easeInOut(duration: 0.16)) { controller.showingSettings = true }
+                    controller.openMainWindow(.settings)
                 }
                 .buttonStyle(.plain)
                 .font(.system(size: 11, weight: .semibold))
@@ -182,8 +186,7 @@ struct DashboardView: View {
                         onToggleMode: { settings.showRemaining.toggle() },
                         isOffline: !store.isOnline,
                         onOpenStats: {
-                            controller.statsProvider = id
-                            withAnimation(.easeInOut(duration: 0.16)) { controller.showingStats = true }
+                            controller.openMainWindow(.stats, statsProvider: id)
                         }
                     )
                 }
@@ -198,13 +201,11 @@ struct DashboardView: View {
     private var footer: some View {
         HStack(spacing: 5) {
             Button {
-                withAnimation(.easeInOut(duration: 0.16)) {
-                    controller.showingSettings.toggle()
-                }
+                controller.openMainWindow(.settings)
             } label: {
                 HStack(spacing: 3.5) {
-                    Image(systemName: controller.showingSettings ? "chevron.left" : "slider.horizontal.3")
-                    Text(controller.showingSettings ? "返回額度面板" : "設定")
+                    Image(systemName: "slider.horizontal.3")
+                    Text("設定")
                 }
                 .font(.system(size: 11, weight: .semibold, design: .rounded))
                 .lineLimit(1)
@@ -219,8 +220,7 @@ struct DashboardView: View {
 
             if !controller.showingSettings && !store.panelProviders.isEmpty {
                 Button {
-                    controller.statsProvider = nil
-                    withAnimation(.easeInOut(duration: 0.16)) { controller.showingStats.toggle() }
+                    controller.openMainWindow(.stats)
                 } label: {
                     HStack(spacing: 3) {
                         Image(systemName: "chart.bar.xaxis")
@@ -240,7 +240,7 @@ struct DashboardView: View {
                 .help("查看 Token 與花費統計表（當日 · 週 · 月）")
 
                 Button {
-                    withAnimation(.easeInOut(duration: 0.16)) { controller.showingConversations.toggle() }
+                    controller.openMainWindow(.conversations)
                 } label: {
                     HStack(spacing: 3) {
                         Image(systemName: "bubble.left.and.bubble.right")
@@ -258,6 +258,26 @@ struct DashboardView: View {
                 }
                 .buttonStyle(.plain)
                 .help("管理本地對話紀錄與釋放硬碟空間")
+
+                Button {
+                    controller.openMainWindow(.tools)
+                } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: "puzzlepiece.extension")
+                            .font(.system(size: 10))
+                        Text("工具")
+                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
+                    .foregroundStyle(.white.opacity(0.85))
+                    .padding(.horizontal, 7.5)
+                    .padding(.vertical, 4)
+                    .background(Theme.cardBackground, in: Capsule())
+                    .overlay(Capsule().strokeBorder(Theme.cardBorder, lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .help("開啟獨立視窗，管理 OpenCode / Claude Code / Codex 的 Skill、MCP、Plugin")
 
                 Button {
                     ShareExporter.shareAllCards(store: store, showRemaining: settings.showRemaining)
@@ -325,9 +345,32 @@ struct ProviderCardView: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 11) {
-            DualRingGauge(provider: provider, lines: lines, showRemaining: showRemaining, size: 62, lineWidth: 4.8)
-                .opacity(state.isStale ? 0.65 : 1.0)
-                .onTapGesture(perform: onToggleMode)
+            Group {
+                if provider == .opencode && lines.isEmpty {
+                    ZStack {
+                        Circle().strokeBorder(Color.white.opacity(0.10), lineWidth: 4.8)
+                        if let today = state.snapshot?.localSpend?.todayCostUSD {
+                            VStack(spacing: 0) {
+                                Text(MenuBarStripView.spendText(today))
+                                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                                    .foregroundStyle(.white)
+                                    .monospacedDigit()
+                                    .minimumScaleFactor(0.7)
+                                Text("今日")
+                                    .font(.system(size: 8, weight: .semibold, design: .rounded))
+                                    .foregroundStyle(.white.opacity(0.65))
+                            }
+                        } else {
+                            ProviderLogoView(provider: provider, size: 22, tinted: true)
+                        }
+                    }
+                    .frame(width: 62, height: 62)
+                } else {
+                    DualRingGauge(provider: provider, lines: lines, showRemaining: showRemaining, size: 62, lineWidth: 4.8)
+                        .onTapGesture(perform: onToggleMode)
+                }
+            }
+            .opacity(state.isStale ? 0.65 : 1.0)
 
             VStack(alignment: .leading, spacing: 4.5) {
                 HStack(spacing: 5.5) {
@@ -396,6 +439,10 @@ struct ProviderCardView: View {
                             .font(.system(size: 11))
                             .foregroundStyle(.orange)
                             .lineLimit(2)
+                    } else if provider == .opencode, state.snapshot != nil {
+                        Text("本機花費統計 · 未設定額度上限")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.white.opacity(0.55))
                     } else {
                         Text(state.isRefreshing ? "讀取中…" : "No data")
                             .font(.system(size: 11))
@@ -421,6 +468,11 @@ struct ProviderCardView: View {
                         .foregroundStyle(.orange)
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
+                    if state.isRateLimited {
+                        Text("手動重新整理可能讓限流更久，請耐心等候")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.white.opacity(0.45))
+                    }
                 }
 
                 if let snap = state.snapshot, snap.localSpend?.hasAnyUsage == true || snap.extraUsageText != nil {
@@ -882,6 +934,7 @@ struct SettingsView: View {
         VStack(spacing: 8) {
             providerMatrixCard
             displayModeCard
+            if settings.isTracked(.opencode) { opencodeQuotaCard }
             scheduleAndAlertsCard
             updateCard
         }
@@ -934,6 +987,72 @@ struct SettingsView: View {
                     }
                 }
             }
+        }
+    }
+
+    private var opencodeQuotaCard: some View {
+        SettingsCard(title: "OpenCode 額度（本機估算）", icon: "chevron.left.forwardslash.chevron.right") {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("額度模式")
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.9))
+                    Spacer()
+                    HStack(spacing: 3) {
+                        ForEach(OpenCodeQuotaMode.allCases, id: \.self) { mode in
+                            let selected = settings.opencodeQuotaMode == mode
+                            Button {
+                                settings.opencodeQuotaMode = mode
+                            } label: {
+                                Text(mode.title)
+                                    .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                                    .lineLimit(1)
+                                    .fixedSize(horizontal: true, vertical: false)
+                                    .foregroundStyle(selected ? .white : .white.opacity(0.5))
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 3.5)
+                                    .background(Capsule().fill(selected ? Color.white.opacity(0.18) : Color.clear))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(2)
+                    .background(Color.white.opacity(0.06), in: Capsule())
+                    .fixedSize(horizontal: true, vertical: false)
+                }
+
+                if settings.opencodeQuotaMode == .custom {
+                    budgetField(title: "5 小時預算 (USD)", value: $settings.opencodeSessionBudget)
+                    budgetField(title: "每週預算 (USD)", value: $settings.opencodeWeeklyBudget)
+                }
+
+                Text(opencodeModeHint)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.white.opacity(0.5))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private var opencodeModeHint: String {
+        switch settings.opencodeQuotaMode {
+        case .spendOnly: "只讀取本機 opencode.db 的花費紀錄，不連網、不消耗額度。"
+        case .go: "只計 opencode-go 花費：5 小時 $12、每週 $30。各模型上限不同，百分比為估算。"
+        case .goPlus: "只計 opencode-go 花費：5 小時 $48、每週 $120。各模型上限不同，百分比為估算。"
+        case .custom: "以所有 provider 的本機花費對照你設定的預算。"
+        }
+    }
+
+    private func budgetField(title: String, value: Binding<Double>) -> some View {
+        HStack {
+            Text(title)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.white.opacity(0.7))
+            Spacer()
+            TextField("", value: value, format: .number.precision(.fractionLength(0...2)))
+                .textFieldStyle(.roundedBorder)
+                .multilineTextAlignment(.trailing)
+                .frame(width: 70)
         }
     }
 
@@ -1080,6 +1199,9 @@ struct SettingsView: View {
                         }
                     }
                 }
+                Text("Claude 的額度端點限流較嚴，Claude 最短每 \(SnapshotStore.claudeMinimumRefreshMinutes) 分鐘更新一次")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.white.opacity(0.45))
 
                 Divider().overlay(Color.white.opacity(0.08))
 

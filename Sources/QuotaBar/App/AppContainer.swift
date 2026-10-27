@@ -30,6 +30,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             window.close()
         }
         container = AppContainer()
+        #if DEBUG
+        // Dev aid: `QUOTABAR_OPEN_PAGE=stats swift run` opens the main window straight away.
+        if let raw = ProcessInfo.processInfo.environment["QUOTABAR_OPEN_PAGE"], let page = MainPage(rawValue: raw) {
+            MainWindowController.shared.show(page: page)
+        }
+        #endif
     }
 }
 
@@ -42,11 +48,13 @@ final class AppContainer {
     let notifier: QuotaNotifier
     let statusItem: StatusItemController
     private var cancellable: AnyCancellable?
+    private var opencodeCancellable: AnyCancellable?
 
     init() {
         store = SnapshotStore(settings: settings, network: NetworkMonitor())
         notifier = QuotaNotifier(store: store, settings: settings)
         statusItem = StatusItemController(store: store, settings: settings, updater: updater)
+        MainWindowController.shared.configure(store: store, settings: settings, updater: updater)
         // Only fetches providers that have no cached snapshot or whose persisted `fetchedAt` has exceeded `refreshMinutes`.
         // Restarting the app never re-fetches fresh cached providers!
         Task { await store.refresh(manual: false) }
@@ -54,6 +62,16 @@ final class AppContainer {
         updater.startPeriodicChecks()
 
         // When the user enables tracking for a provider that has no recent snapshot, check if due.
+        // OpenCode quota settings only affect a local DB read, so re-run it right away (no network involved).
+        opencodeCancellable = Publishers.CombineLatest3(
+            settings.$opencodeQuotaMode, settings.$opencodeSessionBudget, settings.$opencodeWeeklyBudget
+        )
+        .dropFirst()
+        .debounce(for: .milliseconds(400), scheduler: RunLoop.main)
+        .sink { [weak self] _ in
+            Task { await self?.store.refreshNow(.opencode) }
+        }
+
         cancellable = settings.$trackedProviders
             .dropFirst()
             .removeDuplicates()

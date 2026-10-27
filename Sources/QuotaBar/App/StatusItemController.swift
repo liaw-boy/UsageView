@@ -156,6 +156,10 @@ final class StatusItemController: NSObject, ObservableObject, NSPopoverDelegate 
         convItem.target = self
         menu.addItem(convItem)
 
+        let toolsItem = NSMenuItem(title: "工具管理（Skill / MCP / Plugin）…", action: #selector(menuTools), keyEquivalent: "t")
+        toolsItem.target = self
+        menu.addItem(toolsItem)
+
         menu.addItem(.separator())
         let quitItem = NSMenuItem(title: "結束 UsageView", action: #selector(menuQuit), keyEquivalent: "q")
         quitItem.target = self
@@ -170,27 +174,23 @@ final class StatusItemController: NSObject, ObservableObject, NSPopoverDelegate 
         Task { await store.refresh(manual: true) }
     }
 
+    /// Opens the standalone main window on `page` and dismisses the popover.
+    func openMainWindow(_ page: MainPage, statsProvider: ProviderID? = nil) {
+        popover.performClose(nil)
+        stopMonitoringOutsideClicks()
+        MainWindowController.shared.show(page: page, statsProvider: statsProvider)
+    }
+
     @objc private func menuCheckUpdates() {
-        showingSettings = true
-        if let button = statusItem.button, !popover.isShown {
-            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        }
+        openMainWindow(.settings)
         Task { await updater.checkForUpdates() }
     }
 
-    @objc private func menuSettings() {
-        showingSettings = true
-        if let button = statusItem.button, !popover.isShown {
-            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        }
-    }
+    @objc private func menuSettings() { openMainWindow(.settings) }
 
-    @objc private func menuConversations() {
-        showingConversations = true
-        if let button = statusItem.button, !popover.isShown {
-            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        }
-    }
+    @objc private func menuConversations() { openMainWindow(.conversations) }
+
+    @objc private func menuTools() { openMainWindow(.tools) }
 
     @objc private func menuQuit() {
         NSApp.terminate(nil)

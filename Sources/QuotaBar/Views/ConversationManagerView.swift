@@ -4,6 +4,7 @@ import SwiftUI
 
 public struct ConversationManagerView: View {
     var onBack: () -> Void
+    var embedded = false
     @ObservedObject var settings: SettingsStore
 
     @State private var sessions: [ConversationSession] = []
@@ -42,8 +43,9 @@ public struct ConversationManagerView: View {
         var id: String { rawValue }
     }
 
-    public init(settings: SettingsStore, onBack: @escaping () -> Void) {
+    public init(settings: SettingsStore, embedded: Bool = false, onBack: @escaping () -> Void) {
         self.settings = settings
+        self.embedded = embedded
         self.onBack = onBack
     }
 
@@ -56,18 +58,18 @@ public struct ConversationManagerView: View {
                 filterBar
                 conversationList
             }
-            .frame(width: 368, height: 508)
+            .panelSized(embedded: embedded)
             .opacity(previewSession == nil ? 1 : 0)
             .disabled(previewSession != nil)
 
             // In-place full preview overlay (matching exact background bounds)
             if let session = previewSession {
                 previewFullView(session)
-                    .frame(width: 368, height: 508)
+                    .panelSized(embedded: embedded)
                     .transition(.opacity)
             }
         }
-        .frame(width: 368, height: 508)
+        .panelSized(embedded: embedded)
         .task {
             await loadData()
         }
@@ -98,46 +100,55 @@ public struct ConversationManagerView: View {
 
     // MARK: - Header
 
+    @ViewBuilder
     private var header: some View {
-        HStack(spacing: 6) {
-            Button {
-                onBack()
-            } label: {
-                HStack(spacing: 3.5) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 11, weight: .bold))
-                    Text("返回面板")
-                        .font(.system(size: 11.5, weight: .semibold, design: .rounded))
+        if embedded {
+            PageHeader(title: "對話管理", subtitle: "對話紀錄與硬碟空間") { refreshButton }
+        } else {
+            HStack(spacing: 6) {
+                Button {
+                    onBack()
+                } label: {
+                    HStack(spacing: 3.5) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 11, weight: .bold))
+                        Text("返回面板")
+                            .font(.system(size: 11.5, weight: .semibold, design: .rounded))
+                    }
+                    .foregroundStyle(.white.opacity(0.88))
+                    .padding(.horizontal, 8.5)
+                    .padding(.vertical, 4)
+                    .background(Theme.cardBackground, in: Capsule())
+                    .overlay(Capsule().strokeBorder(Theme.cardBorder, lineWidth: 1))
                 }
-                .foregroundStyle(.white.opacity(0.88))
-                .padding(.horizontal, 8.5)
-                .padding(.vertical, 4)
-                .background(Theme.cardBackground, in: Capsule())
-                .overlay(Capsule().strokeBorder(Theme.cardBorder, lineWidth: 1))
+                .buttonStyle(.plain)
+
+                Spacer()
+
+                Text("對話紀錄與空間管理")
+                    .font(.system(size: 13.5, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+
+                Spacer()
+
+                refreshButton
             }
-            .buttonStyle(.plain)
-
-            Spacer()
-
-            Text("對話紀錄與空間管理")
-                .font(.system(size: 13.5, weight: .bold, design: .rounded))
-                .foregroundStyle(.white)
-
-            Spacer()
-
-            Button {
-                Task { await loadData() }
-            } label: {
-                Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 11.5, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.85))
-                    .frame(width: 25, height: 25)
-                    .background(Theme.cardBackground, in: Circle())
-                    .overlay(Circle().strokeBorder(Theme.cardBorder, lineWidth: 1))
-            }
-            .buttonStyle(.plain)
-            .help("重新掃描對話紀錄與磁碟空間")
         }
+    }
+
+    private var refreshButton: some View {
+        Button {
+            Task { await loadData() }
+        } label: {
+            Image(systemName: "arrow.clockwise")
+                .font(.system(size: 11.5, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.85))
+                .frame(width: 25, height: 25)
+                .background(Theme.cardBackground, in: Circle())
+                .overlay(Circle().strokeBorder(Theme.cardBorder, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .help("重新掃描對話紀錄與磁碟空間")
     }
 
     // MARK: - Storage Overview Card
@@ -408,10 +419,84 @@ public struct ConversationManagerView: View {
                 .padding(.bottom, 6)
             }
         }
-        .frame(height: 315)
+        .frame(height: embedded ? nil : 315)
     }
 
+    @ViewBuilder
     private func sessionRow(_ session: ConversationSession) -> some View {
+        if embedded {
+            HoverRow { hovering in embeddedRow(session, hovering: hovering) }
+        } else {
+            popoverRow(session)
+        }
+    }
+
+    /// Single-line row for the wide main window: actions are icon-only and appear on hover.
+    private func embeddedRow(_ session: ConversationSession, hovering: Bool) -> some View {
+        let brand = Theme.brandColor(session.provider)
+        return HStack(spacing: 12) {
+            ProviderLogoView(provider: session.provider, size: 16, tinted: true)
+                .frame(width: 34, height: 34)
+                .background(brand.opacity(0.14), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 8) {
+                    Text(session.projectName)
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .foregroundStyle(brand)
+                        .lineLimit(1)
+                    Text(session.formattedRelativeTime)
+                        .font(.system(size: 11, weight: .medium, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.45))
+                }
+                Text(session.prompt)
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+
+            Spacer(minLength: 8)
+
+            HStack(spacing: 4) {
+                iconAction("eye.fill", help: "預覽對話內容") { openPreview(session) }
+                iconAction("folder.fill", help: "在 Finder 中顯示") { revealInFinder(session) }
+                iconAction("square.and.arrow.up", help: "匯出為 Markdown") { exportMarkdown(session) }
+                iconAction("trash.fill", help: "移至垃圾桶，可安全復原", tint: Color(red: 0.98, green: 0.38, blue: 0.42)) {
+                    trashSession(session)
+                }
+            }
+            .opacity(hovering ? 1 : 0)
+
+            sizeBadge(session.totalSizeBytes, label: session.formattedSize)
+                .frame(minWidth: 64, alignment: .trailing)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .background(Theme.cardBackground)
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.white.opacity(hovering ? 0.025 : 0))
+                .allowsHitTesting(false)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Theme.cardBorder, lineWidth: 0.8))
+        .animation(.easeInOut(duration: 0.2), value: hovering)
+    }
+
+    private func iconAction(_ symbol: String, help: String, tint: Color = .white, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(tint.opacity(0.85))
+                .frame(width: 26, height: 26)
+                .background(tint.opacity(0.10), in: Circle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
+    }
+
+    private func popoverRow(_ session: ConversationSession) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 ProviderLogoView(provider: session.provider, size: 14, tinted: true)
@@ -601,6 +686,8 @@ public struct ConversationManagerView: View {
                     case .antigravity:
                         self.stats.antigravityBytes = max(0, self.stats.antigravityBytes - freed)
                         self.stats.antigravityCount = max(0, self.stats.antigravityCount - 1)
+                    case .opencode:
+                        break // OpenCode sessions live in its database; the cleaner never lists them.
                     }
                     self.stats.totalBytes = self.stats.claudeBytes + self.stats.antigravityBytes + self.stats.codexBytes
                     showToast("已移至垃圾桶，釋放 \(freedStr)")
@@ -777,9 +864,17 @@ public struct ConversationManagerView: View {
 
                             VStack(alignment: .leading, spacing: 4) {
                                 HStack(alignment: .center) {
-                                    Text(msg.role == "User" ? "👤 使用者" : "🤖 \(msg.role)")
-                                        .font(.system(size: 10.5, weight: .bold, design: .rounded))
-                                        .foregroundStyle(msg.role == "User" ? Color(red: 0.40, green: 0.75, blue: 1.0) : Theme.brandColor(session.provider))
+                                    HStack(spacing: 4) {
+                                        if msg.role == "User" {
+                                            Image(systemName: "person.fill")
+                                                .font(.system(size: 10, weight: .semibold))
+                                        } else {
+                                            ProviderLogoView(provider: session.provider, size: 12, tinted: true)
+                                        }
+                                        Text(msg.role == "User" ? "使用者" : msg.role)
+                                            .font(.system(size: 10.5, weight: .bold, design: .rounded))
+                                    }
+                                    .foregroundStyle(msg.role == "User" ? Color(red: 0.40, green: 0.75, blue: 1.0) : Theme.brandColor(session.provider))
 
                                     if isLatest {
                                         HStack(spacing: 2.5) {
@@ -804,18 +899,28 @@ public struct ConversationManagerView: View {
                                     }
                                 }
 
-                                Text(msg.text)
-                                    .font(.system(size: 11.5))
-                                    .lineSpacing(2)
-                                    .foregroundStyle(.white.opacity(0.92))
-                                    .textSelection(.enabled)
+                                Group {
+                                    if msg.role == "User" {
+                                        Text(msg.text)
+                                            .font(.system(size: embedded ? 13 : 11.5))
+                                            .lineSpacing(embedded ? 3.5 : 2)
+                                            .textSelection(.enabled)
+                                    } else {
+                                        MarkdownTextView(
+                                            text: msg.text,
+                                            fontSize: embedded ? 13 : 11.5,
+                                            lineSpacing: embedded ? 3.5 : 2
+                                        )
+                                    }
+                                }
+                                .foregroundStyle(.white.opacity(0.92))
                             }
-                            .padding(.horizontal, 9)
-                            .padding(.vertical, 7)
+                            .padding(.horizontal, embedded ? 14 : 9)
+                            .padding(.vertical, embedded ? 11 : 7)
                             .background(isLatest ? Color.white.opacity(0.08) : (msg.role == "User" ? Color.white.opacity(0.05) : Color.white.opacity(0.025)))
-                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                            .clipShape(RoundedRectangle(cornerRadius: embedded ? 10 : 6))
                             .overlay(
-                                RoundedRectangle(cornerRadius: 6)
+                                RoundedRectangle(cornerRadius: embedded ? 10 : 6)
                                     .strokeBorder(isLatest ? Color(red: 0.35, green: 0.85, blue: 0.55).opacity(0.35) : Color.clear, lineWidth: 0.8)
                             )
                         }
@@ -823,7 +928,7 @@ public struct ConversationManagerView: View {
                     .padding(.bottom, 6)
                 }
             }
-            .frame(height: 380)
+            .frame(height: embedded ? nil : 380)
 
             Divider().overlay(Color.white.opacity(0.10))
 
@@ -867,7 +972,17 @@ public struct ConversationManagerView: View {
                 .buttonStyle(.plain)
             }
         }
-        .frame(width: 368, height: 508)
+        .panelSized(embedded: embedded)
         .background(Theme.panelBackground)
+    }
+}
+
+/// Tracks pointer hover for a list row and hands the state to its content.
+private struct HoverRow<Content: View>: View {
+    @State private var hovering = false
+    @ViewBuilder var content: (Bool) -> Content
+
+    var body: some View {
+        content(hovering).onHover { hovering = $0 }
     }
 }
