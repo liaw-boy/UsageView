@@ -5,11 +5,17 @@ public struct ProviderState: Sendable {
     public var snapshot: ProviderSnapshot?
     public var error: String?
     public var isRefreshing = false
+    /// Rate-limit (429) backoff: honoured by automatic and manual refreshes alike.
     var backoffUntil: Date?
     var backoffStep = 0
+    /// Short pause after any other failure so a flaky connection isn't hammered; manual refresh may override it.
+    var retryAfter: Date?
 
     public init() {}
     public var isStale: Bool { error != nil && snapshot != nil }
+
+    /// True while a 429 cooldown is active; refreshing sooner only prolongs the limit.
+    public var isRateLimited: Bool { (backoffUntil ?? .distantPast) > Date() }
 
     /// The failure reason to show next to cached numbers, so a stale card never fails silently.
     /// Hidden while offline (the offline note covers it) and when there is no snapshot (the error is the card's main text).
@@ -29,8 +35,24 @@ public final class SnapshotStore: ObservableObject {
     @Published public private(set) var isOnline = true
 
     public static let manualThrottle: TimeInterval = 15
+    /// Claude is never re-fetched by hand sooner than this after its last success (its endpoint 429s easily).
+    public static let claudeManualMinimumSeconds: TimeInterval = 60
     public static let providerTimeout: TimeInterval = 120
     static let backoffSteps: [TimeInterval] = [2, 5, 10, 20, 40].map { $0 * 60 }
+    static let failureBackoff: TimeInterval = 60
+
+    /// Claude's usage endpoint rate-limits aggressively (persistent 429s reported upstream), so it is polled less often.
+    public static let claudeMinimumRefreshMinutes = 10
+
+    static func minimumRefreshMinutes(for id: ProviderID) -> Int {
+        id == .claude ? claudeMinimumRefreshMinutes : SettingsStore.minimumRefreshMinutes
+    }
+
+    static func rateLimitMessage(until: Date, serverRequested: Bool) -> String {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm"
+        return "請求太頻繁，" + (serverRequested ? "伺服器要求等到 " : "將於 ") + f.string(from: until) + " 後自動重試"
+    }
 
     private let runtimes: [ProviderRuntime]
     private let settings: SettingsStore
@@ -38,7 +60,7 @@ public final class SnapshotStore: ObservableObject {
     private let scanLocalMetadata: Bool
     private var refreshTimer: Timer?
     private var carouselTimer: Timer?
-    private var lastRefresh: Date?
+    private var lastManualRefresh: Date?
     private let network: NetworkMonitoring?
     private let networkRestoreDelay: TimeInterval
     private var pendingNetworkRefresh: Task<Void, Never>?
@@ -107,13 +129,21 @@ public final class SnapshotStore: ObservableObject {
         isOnline = online
         pendingNetworkRefresh?.cancel()
         guard online else { return }
+        clearFailurePauses()
         scheduleDelayedRefresh(after: networkRestoreDelay)
     }
 
     /// Called after the Mac wakes from sleep: the network is usually not ready yet, so wait before checking.
     public func systemDidWake(delay: TimeInterval = 4) {
         pendingNetworkRefresh?.cancel()
+        clearFailurePauses()
         scheduleDelayedRefresh(after: delay)
+    }
+
+    /// Failures before a reconnect or wake were most likely the network's fault, so the short pause is dropped.
+    /// A 429 cooldown comes from the server and is never cleared here.
+    private func clearFailurePauses() {
+        for id in states.keys { states[id]?.retryAfter = nil }
     }
 
     private func scheduleDelayedRefresh(after delay: TimeInterval) {
@@ -137,23 +167,38 @@ public final class SnapshotStore: ObservableObject {
         carouselTimer = t
     }
 
-    /// Only refreshes providers whose persisted `fetchedAt` is older than the configured `refreshMinutes`
-    /// (or has no snapshot yet), unless `manual: true` is explicitly requested by the user.
+    /// The refresh rules, in one place:
+    /// - Automatic: never while offline; a provider is due once its last success is older than
+    ///   max(user interval, that provider's minimum); skipped during a 429 cooldown or the short pause after any other failure.
+    /// - Manual: overrides cache age and the short failure pause, never a 429 cooldown; at most one manual refresh
+    ///   per `manualThrottle`; Claude additionally needs `claudeManualMinimumSeconds` since its last success.
+    /// - Connectivity restored / wake: one automatic pass after clearing the short failure pause (429 cooldowns stay).
+    func shouldFetch(_ id: ProviderID, state s: ProviderState, manual: Bool, now: Date) -> Bool {
+        guard settings.isTracked(id), !s.isRefreshing else { return false }
+        guard (s.backoffUntil ?? .distantPast) <= now else { return false }
+        let fetchedAt = s.snapshot?.fetchedAt
+        if manual {
+            if id == .claude, let fetchedAt, now.timeIntervalSince(fetchedAt) < Self.claudeManualMinimumSeconds { return false }
+            return true
+        }
+        guard (s.retryAfter ?? .distantPast) <= now else { return false }
+        guard let fetchedAt else { return true } // Never fetched before
+        let requiredAge = TimeInterval(max(settings.refreshMinutes, Self.minimumRefreshMinutes(for: id)) * 60)
+        return now.timeIntervalSince(fetchedAt) >= requiredAge
+    }
+
+    /// Refreshes the providers that are due under the rules in `shouldFetch`.
     public func refresh(manual: Bool = false) async {
         if !manual, !isOnline { return }
         let now = Date()
-        let anyError = trackedProviders.contains { states[$0]?.error != nil }
-        if manual, !anyError, let last = lastRefresh, now.timeIntervalSince(last) < Self.manualThrottle { return }
+        if manual {
+            if let last = lastManualRefresh, now.timeIntervalSince(last) < Self.manualThrottle { return }
+            lastManualRefresh = now
+        }
 
-        let requiredAge = TimeInterval(max(settings.refreshMinutes, SettingsStore.minimumRefreshMinutes) * 60)
         let due = runtimes.filter { r in
-            guard settings.isTracked(r.id), let s = states[r.id], !s.isRefreshing else { return false }
-            if manual { return true }
-            guard (s.backoffUntil ?? .distantPast) <= now else { return false }
-            if let fetchedAt = s.snapshot?.fetchedAt {
-                return now.timeIntervalSince(fetchedAt) >= requiredAge
-            }
-            return true // Never fetched before
+            guard let s = states[r.id] else { return false }
+            return shouldFetch(r.id, state: s, manual: manual, now: now)
         }
         guard !due.isEmpty else {
             if scanLocalMetadata {
@@ -161,7 +206,6 @@ public final class SnapshotStore: ObservableObject {
             }
             return
         }
-        lastRefresh = now
         for r in due { states[r.id]?.isRefreshing = true }
 
         await withTaskGroup(of: (ProviderID, Result<ProviderFetchResult, Error>).self) { group in
@@ -174,6 +218,18 @@ public final class SnapshotStore: ObservableObject {
         if scanLocalMetadata {
             Task { await self.refreshLocalMetadata() }
         }
+    }
+
+    /// Re-runs one provider immediately, bypassing the refresh interval. Only meant for local-only providers
+    /// (OpenCode reads its own database), e.g. after the user changes its quota settings.
+    public func refreshNow(_ id: ProviderID) async {
+        guard let runtime = runtimes.first(where: { $0.id == id }), settings.isTracked(id),
+              states[id]?.isRefreshing != true else { return }
+        states[id]?.isRefreshing = true
+        let result = await Self.runWithTimeout(runtime)
+        apply(id, result, localSpend: nil)
+        saveCache()
+        if scanLocalMetadata { await refreshLocalMetadata() }
     }
 
     /// Updates offline local token spend and locally readable plan names on cached snapshots without hitting remote APIs.
@@ -212,11 +268,13 @@ public final class SnapshotStore: ObservableObject {
                 lines: fetched.lines,
                 planName: fetched.planName ?? s.snapshot?.planName,
                 extraUsageText: fetched.extraUsageText,
-                localSpend: localSpend ?? s.snapshot?.localSpend
+                localSpend: localSpend ?? s.snapshot?.localSpend,
+                windowSpend: fetched.windowSpend
             )
             s.error = nil
             s.backoffStep = 0
             s.backoffUntil = nil
+            s.retryAfter = nil
         case .failure(let error):
             s.error = error.localizedDescription // keep last good snapshot
             if var existing = s.snapshot, let localSpend {
@@ -225,8 +283,13 @@ public final class SnapshotStore: ObservableObject {
             }
             if case ProviderError.rateLimited(let retryAfter) = error {
                 let step = Self.backoffSteps[min(s.backoffStep, Self.backoffSteps.count - 1)]
-                s.backoffUntil = Date().addingTimeInterval(max(step, retryAfter ?? 0))
+                let until = Date().addingTimeInterval(max(step, retryAfter ?? 0))
+                s.backoffUntil = until
                 s.backoffStep += 1
+                s.retryAfter = nil
+                s.error = Self.rateLimitMessage(until: until, serverRequested: (retryAfter ?? 0) > step)
+            } else {
+                s.retryAfter = Date().addingTimeInterval(Self.failureBackoff)
             }
         }
         states[id] = s
@@ -286,6 +349,13 @@ public final class SnapshotStore: ObservableObject {
             planName: "Plus",
             extraUsageText: "點數餘額 $12.80 · 320 點",
             localSpend: LocalSpendSummary(todayCostUSD: 6.20, todayTokens: 1_120_000, monthCostUSD: 118.50, monthTokens: 21_400_000)
+        )
+        states[.opencode]?.snapshot = ProviderSnapshot(
+            provider: .opencode,
+            lines: [],
+            fetchedAt: now,
+            planName: "本機花費",
+            localSpend: LocalSpendSummary(todayCostUSD: 5.11, todayTokens: 1_200_000, weekCostUSD: 12.40, weekTokens: 3_100_000, monthCostUSD: 38.20, monthTokens: 9_800_000)
         )
         states[.antigravity]?.snapshot = ProviderSnapshot(
             provider: .antigravity,
