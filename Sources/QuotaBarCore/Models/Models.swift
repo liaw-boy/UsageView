@@ -1,7 +1,7 @@
 import Foundation
 
 public enum ProviderID: String, Codable, CaseIterable, Sendable, Identifiable {
-    case claude, codex, antigravity
+    case claude, codex, antigravity, opencode
     public var id: String { rawValue }
 
     public var displayName: String {
@@ -9,6 +9,7 @@ public enum ProviderID: String, Codable, CaseIterable, Sendable, Identifiable {
         case .claude: "Claude"
         case .codex: "Codex"
         case .antigravity: "Antigravity"
+        case .opencode: "OpenCode"
         }
     }
 
@@ -17,6 +18,7 @@ public enum ProviderID: String, Codable, CaseIterable, Sendable, Identifiable {
         case .claude: "C"
         case .codex: "X"
         case .antigravity: "A"
+        case .opencode: "O"
         }
     }
 }
@@ -97,8 +99,10 @@ public struct MetricLine: Codable, Sendable, Identifiable, Equatable {
 
 /// Summary of local token usage and estimated API-equivalent USD value over Today, the last 7 days (Week), and 30 days (Month).
 public struct ModelSpendBreakdown: Codable, Sendable, Equatable, Identifiable {
-    public var id: String { model }
+    public var id: String { (vendor ?? "") + "|" + model }
     public let model: String
+    /// Which company's API served it (OpenCode only; raw `providerID`, e.g. "anthropic").
+    public let vendor: String?
     public let todayCostUSD: Double
     public let todayTokens: Int
     public let weekCostUSD: Double
@@ -108,6 +112,7 @@ public struct ModelSpendBreakdown: Codable, Sendable, Equatable, Identifiable {
 
     public init(
         model: String,
+        vendor: String? = nil,
         todayCostUSD: Double = 0,
         todayTokens: Int = 0,
         weekCostUSD: Double = 0,
@@ -116,6 +121,7 @@ public struct ModelSpendBreakdown: Codable, Sendable, Equatable, Identifiable {
         monthTokens: Int = 0
     ) {
         self.model = model
+        self.vendor = vendor
         self.todayCostUSD = todayCostUSD
         self.todayTokens = todayTokens
         self.weekCostUSD = weekCostUSD
@@ -193,6 +199,17 @@ public struct LocalSpendSummary: Codable, Sendable, Equatable {
     }
 }
 
+/// Rolling-window spend in USD for providers without a quota percentage (OpenCode without a budget).
+public struct WindowSpend: Codable, Sendable, Equatable {
+    public let sessionUSD: Double
+    public let weeklyUSD: Double
+
+    public init(sessionUSD: Double, weeklyUSD: Double) {
+        self.sessionUSD = sessionUSD
+        self.weeklyUSD = weeklyUSD
+    }
+}
+
 public struct ProviderSnapshot: Codable, Sendable, Equatable {
     public let provider: ProviderID
     public let lines: [MetricLine]
@@ -200,6 +217,7 @@ public struct ProviderSnapshot: Codable, Sendable, Equatable {
     public var planName: String?
     public var extraUsageText: String?
     public var localSpend: LocalSpendSummary?
+    public var windowSpend: WindowSpend?
 
     public init(
         provider: ProviderID,
@@ -207,7 +225,8 @@ public struct ProviderSnapshot: Codable, Sendable, Equatable {
         fetchedAt: Date = Date(),
         planName: String? = nil,
         extraUsageText: String? = nil,
-        localSpend: LocalSpendSummary? = nil
+        localSpend: LocalSpendSummary? = nil,
+        windowSpend: WindowSpend? = nil
     ) {
         self.provider = provider
         self.lines = lines
@@ -215,6 +234,7 @@ public struct ProviderSnapshot: Codable, Sendable, Equatable {
         self.planName = planName
         self.extraUsageText = extraUsageText
         self.localSpend = localSpend
+        self.windowSpend = windowSpend
     }
 
     /// Primary session usage — for Antigravity, always prefers its native Gemini pool (`pool == "gemini"`)

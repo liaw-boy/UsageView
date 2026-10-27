@@ -12,6 +12,7 @@ public actor LocalUsageScanner {
         public let dedupKey: String?
         public let isSidechain: Bool
         public let model: String?
+        public let vendor: String?
 
         public init(
             timestamp: Date,
@@ -19,7 +20,8 @@ public actor LocalUsageScanner {
             costUSD: Double,
             dedupKey: String? = nil,
             isSidechain: Bool = false,
-            model: String? = nil
+            model: String? = nil,
+            vendor: String? = nil
         ) {
             self.timestamp = timestamp
             self.tokens = tokens
@@ -27,10 +29,11 @@ public actor LocalUsageScanner {
             self.dedupKey = dedupKey
             self.isSidechain = isSidechain
             self.model = model
+            self.vendor = vendor
         }
 
         public enum CodingKeys: String, CodingKey {
-            case timestamp, tokens, costUSD, dedupKey, isSidechain, model
+            case timestamp, tokens, costUSD, dedupKey, isSidechain, model, vendor
         }
 
         public init(from decoder: Decoder) throws {
@@ -41,6 +44,7 @@ public actor LocalUsageScanner {
             self.dedupKey = try c.decodeIfPresent(String.self, forKey: .dedupKey)
             self.isSidechain = try c.decodeIfPresent(Bool.self, forKey: .isSidechain) ?? false
             self.model = try c.decodeIfPresent(String.self, forKey: .model)
+            self.vendor = try c.decodeIfPresent(String.self, forKey: .vendor)
         }
     }
 
@@ -87,6 +91,10 @@ public actor LocalUsageScanner {
             records = scanCodex(since: since)
         case .antigravity:
             records = scanAntigravity(since: since)
+        case .opencode:
+            records = (OpenCodeDatabase.records(since: since) ?? []).map {
+                Record(timestamp: $0.timestamp, tokens: $0.tokens, costUSD: $0.costUSD, model: $0.modelID, vendor: $0.providerID.isEmpty ? nil : $0.providerID)
+            }
         }
         if fileCache.count != beforeCount {
             saveDiskCache()
@@ -101,6 +109,8 @@ public actor LocalUsageScanner {
         var monthTok = 0
 
         struct ModelAcc {
+            var name = ""
+            var vendor: String?
             var todayCost: Double = 0
             var todayTok: Int = 0
             var weekCost: Double = 0
@@ -120,7 +130,8 @@ public actor LocalUsageScanner {
             monthTok += r.tokens
 
             let mName = Self.cleanModelName(r.model, provider: provider)
-            var acc = modelAcc[mName] ?? ModelAcc()
+            let accKey = (r.vendor ?? "") + "\u{1F}" + mName
+            var acc = modelAcc[accKey] ?? ModelAcc(name: mName, vendor: r.vendor)
             acc.monthCost += r.costUSD
             acc.monthTok += r.tokens
 
@@ -142,12 +153,13 @@ public actor LocalUsageScanner {
                 acc.todayCost += r.costUSD
                 acc.todayTok += r.tokens
             }
-            modelAcc[mName] = acc
+            modelAcc[accKey] = acc
         }
 
-        let modelList = modelAcc.map { key, v in
+        let modelList = modelAcc.values.map { v in
             ModelSpendBreakdown(
-                model: key,
+                model: v.name,
+                vendor: v.vendor,
                 todayCostUSD: v.todayCost,
                 todayTokens: v.todayTok,
                 weekCostUSD: v.weekCost,
@@ -180,6 +192,7 @@ public actor LocalUsageScanner {
             case .antigravity: return "Gemini Pro"
             case .claude: return "Claude Sonnet"
             case .codex: return "Codex"
+            case .opencode: return "OpenCode"
             }
         }
         let l = raw.lowercased()

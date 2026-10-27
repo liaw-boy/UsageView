@@ -4,11 +4,13 @@ public struct ProviderFetchResult: Sendable {
     public let lines: [MetricLine]
     public let planName: String?
     public let extraUsageText: String?
+    public let windowSpend: WindowSpend?
 
-    public init(lines: [MetricLine], planName: String? = nil, extraUsageText: String? = nil) {
+    public init(lines: [MetricLine], planName: String? = nil, extraUsageText: String? = nil, windowSpend: WindowSpend? = nil) {
         self.lines = lines
         self.planName = planName
         self.extraUsageText = extraUsageText
+        self.windowSpend = windowSpend
     }
 }
 
@@ -32,6 +34,7 @@ public enum ProviderCatalog {
             ClaudeRuntime(http: http, credentials: credentials),
             CodexRuntime(http: http, credentials: credentials),
             AntigravityRuntime(http: http, credentials: credentials),
+            OpenCodeRuntime(),
         ]
     }
 }

@@ -100,6 +100,17 @@ public final class SettingsStore: ObservableObject {
         didSet { defaults.set(carouselSeconds, forKey: "carouselSeconds") }
     }
 
+    /// OpenCode 沒有額度 API：預設只顯示本機花費，也可選 Go / Go Plus / 自訂預算換算百分比。
+    @Published public var opencodeQuotaMode: OpenCodeQuotaMode {
+        didSet { defaults.set(opencodeQuotaMode.rawValue, forKey: OpenCodeQuotaConfig.modeKey) }
+    }
+    @Published public var opencodeSessionBudget: Double {
+        didSet { defaults.set(opencodeSessionBudget, forKey: OpenCodeQuotaConfig.sessionKey) }
+    }
+    @Published public var opencodeWeeklyBudget: Double {
+        didSet { defaults.set(opencodeWeeklyBudget, forKey: OpenCodeQuotaConfig.weeklyKey) }
+    }
+
     /// 「釋放空間」一鍵清理條件：最後更新超過 N 天，且單筆對話至少 N MB。
     @Published public var cleanupMinAgeDays: Int {
         didSet { defaults.set(cleanupMinAgeDays, forKey: "cleanupMinAgeDays") }
@@ -126,6 +137,10 @@ public final class SettingsStore: ObservableObject {
         menuBarIconStyle = MenuBarIconStyle(rawValue: defaults.string(forKey: "menuBarIconStyle") ?? "") ?? .logo
         panelDisplayMode = MultiProviderDisplayMode(rawValue: defaults.string(forKey: "panelDisplayMode") ?? "") ?? .all
         selectedSingleProvider = ProviderID(rawValue: defaults.string(forKey: "selectedSingleProvider") ?? "") ?? .claude
+        let oc = OpenCodeQuotaConfig.load(from: defaults)
+        opencodeQuotaMode = oc.mode
+        opencodeSessionBudget = oc.customSessionBudget
+        opencodeWeeklyBudget = oc.customWeeklyBudget
         let age = defaults.integer(forKey: "cleanupMinAgeDays")
         cleanupMinAgeDays = age == 0 ? 14 : min(max(age, 1), 365)
         let size = defaults.integer(forKey: "cleanupMinSizeMB")
