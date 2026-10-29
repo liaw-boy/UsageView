@@ -36,6 +36,14 @@ public struct HTTPResult: Sendable {
     }
 }
 
+/// Debug trace for `QUOTABAR_LOG=1`. Goes to stderr, which is unbuffered, so lines survive a redirect or a crash.
+func debugLog(_ message: String) {
+    guard ProcessInfo.processInfo.environment["QUOTABAR_LOG"] == "1" else { return }
+    let f = DateFormatter()
+    f.dateFormat = "HH:mm:ss"
+    FileHandle.standardError.write(Data("[QuotaBar \(f.string(from: Date()))] \(message)\n".utf8))
+}
+
 /// Every request in the app goes through here, and therefore through `EndpointGuard`.
 public struct HTTPClient: Sendable {
     let transport: HTTPTransport
@@ -54,8 +62,16 @@ public struct HTTPClient: Sendable {
             if log { print("[QuotaBar] BLOCKED \(request.httpMethod ?? "GET") \(request.url?.absoluteString ?? "")") }
             throw error
         }
-        let (data, response) = try await transport.send(request)
-        if log { print("[QuotaBar] \(request.httpMethod ?? "GET") \(request.url?.absoluteString ?? "") → \(response.statusCode)") }
+        let response: HTTPURLResponse
+        let data: Data
+        do {
+            (data, response) = try await transport.send(request)
+        } catch {
+            debugLog("\(request.httpMethod ?? "GET") \(request.url?.absoluteString ?? "") failed: \(error.localizedDescription)")
+            throw error
+        }
+        let retryAfterHeader = response.value(forHTTPHeaderField: "Retry-After") ?? "-"
+        debugLog("\(request.httpMethod ?? "GET") \(request.url?.absoluteString ?? "") → \(response.statusCode) retry-after=\(retryAfterHeader)")
         let retryAfter = (response.value(forHTTPHeaderField: "Retry-After")).flatMap(TimeInterval.init)
         return HTTPResult(status: response.statusCode, data: data, retryAfter: retryAfter)
     }

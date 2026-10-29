@@ -8,6 +8,7 @@ public struct ProviderState: Sendable {
     /// Rate-limit (429) backoff: honoured by automatic and manual refreshes alike.
     var backoffUntil: Date?
     var backoffStep = 0
+    var backoffServerRequested = false
     /// Short pause after any other failure so a flaky connection isn't hammered; manual refresh may override it.
     var retryAfter: Date?
 
@@ -33,20 +34,13 @@ public final class SnapshotStore: ObservableObject {
     @Published public private(set) var states: [ProviderID: ProviderState] = [:]
     @Published public private(set) var carouselTick: Int = 0
     @Published public private(set) var isOnline = true
+    /// One-line explanation shown briefly after a manual refresh that was held back by a cooldown.
+    @Published public private(set) var refreshNotice: String?
 
     public static let manualThrottle: TimeInterval = 15
-    /// Claude is never re-fetched by hand sooner than this after its last success (its endpoint 429s easily).
-    public static let claudeManualMinimumSeconds: TimeInterval = 60
     public static let providerTimeout: TimeInterval = 120
     static let backoffSteps: [TimeInterval] = [2, 5, 10, 20, 40].map { $0 * 60 }
     static let failureBackoff: TimeInterval = 60
-
-    /// Claude's usage endpoint rate-limits aggressively (persistent 429s reported upstream), so it is polled less often.
-    public static let claudeMinimumRefreshMinutes = 10
-
-    static func minimumRefreshMinutes(for id: ProviderID) -> Int {
-        id == .claude ? claudeMinimumRefreshMinutes : SettingsStore.minimumRefreshMinutes
-    }
 
     static func rateLimitMessage(until: Date, serverRequested: Bool) -> String {
         let f = DateFormatter()
@@ -61,6 +55,7 @@ public final class SnapshotStore: ObservableObject {
     private var refreshTimer: Timer?
     private var carouselTimer: Timer?
     private var lastManualRefresh: Date?
+    private var noticeTask: Task<Void, Never>?
     private let network: NetworkMonitoring?
     private let networkRestoreDelay: TimeInterval
     private var pendingNetworkRefresh: Task<Void, Never>?
@@ -77,6 +72,7 @@ public final class SnapshotStore: ObservableObject {
             .appendingPathComponent("QuotaBar/snapshots.json")
         for r in runtimes { states[r.id] = ProviderState() }
         loadCache()
+        loadCooldowns()
 
         settings.$refreshMinutes
             .removeDuplicates()
@@ -127,6 +123,7 @@ public final class SnapshotStore: ObservableObject {
     /// Never fetches more than `refresh()` already would: providers whose cache is still fresh are skipped.
     func networkChanged(online: Bool) {
         isOnline = online
+        debugLog("network online=\(online)")
         pendingNetworkRefresh?.cancel()
         guard online else { return }
         clearFailurePauses()
@@ -135,6 +132,7 @@ public final class SnapshotStore: ObservableObject {
 
     /// Called after the Mac wakes from sleep: the network is usually not ready yet, so wait before checking.
     public func systemDidWake(delay: TimeInterval = 4) {
+        debugLog("system wake")
         pendingNetworkRefresh?.cancel()
         clearFailurePauses()
         scheduleDelayedRefresh(after: delay)
@@ -171,19 +169,18 @@ public final class SnapshotStore: ObservableObject {
     /// - Automatic: never while offline; a provider is due once its last success is older than
     ///   max(user interval, that provider's minimum); skipped during a 429 cooldown or the short pause after any other failure.
     /// - Manual: overrides cache age and the short failure pause, never a 429 cooldown; at most one manual refresh
-    ///   per `manualThrottle`; Claude additionally needs `claudeManualMinimumSeconds` since its last success.
+    ///   per `manualThrottle`.
     /// - Connectivity restored / wake: one automatic pass after clearing the short failure pause (429 cooldowns stay).
     func shouldFetch(_ id: ProviderID, state s: ProviderState, manual: Bool, now: Date) -> Bool {
         guard settings.isTracked(id), !s.isRefreshing else { return false }
         guard (s.backoffUntil ?? .distantPast) <= now else { return false }
         let fetchedAt = s.snapshot?.fetchedAt
         if manual {
-            if id == .claude, let fetchedAt, now.timeIntervalSince(fetchedAt) < Self.claudeManualMinimumSeconds { return false }
             return true
         }
         guard (s.retryAfter ?? .distantPast) <= now else { return false }
         guard let fetchedAt else { return true } // Never fetched before
-        let requiredAge = TimeInterval(max(settings.refreshMinutes, Self.minimumRefreshMinutes(for: id)) * 60)
+        let requiredAge = TimeInterval(settings.refreshMinutes * 60)
         return now.timeIntervalSince(fetchedAt) >= requiredAge
     }
 
@@ -200,6 +197,8 @@ public final class SnapshotStore: ObservableObject {
             guard let s = states[r.id] else { return false }
             return shouldFetch(r.id, state: s, manual: manual, now: now)
         }
+        debugLog("refresh manual=\(manual) online=\(isOnline) due=\(due.map { $0.id.rawValue })")
+        if manual { announceCooldowns(now: now) }
         guard !due.isEmpty else {
             if scanLocalMetadata {
                 Task { await self.refreshLocalMetadata() }
@@ -287,7 +286,8 @@ public final class SnapshotStore: ObservableObject {
                 s.backoffUntil = until
                 s.backoffStep += 1
                 s.retryAfter = nil
-                s.error = Self.rateLimitMessage(until: until, serverRequested: (retryAfter ?? 0) > step)
+                s.backoffServerRequested = (retryAfter ?? 0) > step
+                s.error = Self.rateLimitMessage(until: until, serverRequested: s.backoffServerRequested)
             } else {
                 s.retryAfter = Date().addingTimeInterval(Self.failureBackoff)
             }
@@ -322,6 +322,59 @@ public final class SnapshotStore: ObservableObject {
         let snaps = states.values.compactMap(\.snapshot)
         try? FileManager.default.createDirectory(at: cacheURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? JSONEncoder().encode(snaps).write(to: cacheURL, options: .atomic)
+        saveCooldowns()
+    }
+
+    // MARK: - Cooldowns
+
+    /// A 429 cooldown outlives the process: restarting the app must not fire a request the server told us to hold back.
+    private struct SavedCooldown: Codable {
+        var until: Date
+        var step: Int
+        var serverRequested: Bool
+    }
+
+    private var cooldownURL: URL {
+        cacheURL.deletingPathExtension().appendingPathExtension("cooldowns.json")
+    }
+
+    private func saveCooldowns() {
+        var saved: [String: SavedCooldown] = [:]
+        for (id, s) in states {
+            guard let until = s.backoffUntil else { continue }
+            saved[id.rawValue] = SavedCooldown(until: until, step: s.backoffStep, serverRequested: s.backoffServerRequested)
+        }
+        try? JSONEncoder().encode(saved).write(to: cooldownURL, options: .atomic)
+    }
+
+    private func loadCooldowns() {
+        guard let data = try? Data(contentsOf: cooldownURL),
+              let saved = try? JSONDecoder().decode([String: SavedCooldown].self, from: data) else { return }
+        let now = Date()
+        for (raw, c) in saved {
+            guard let id = ProviderID(rawValue: raw), states[id] != nil, c.until > now else { continue }
+            states[id]?.backoffUntil = c.until
+            states[id]?.backoffStep = c.step
+            states[id]?.backoffServerRequested = c.serverRequested
+            states[id]?.error = Self.rateLimitMessage(until: c.until, serverRequested: c.serverRequested)
+        }
+    }
+
+    /// A manual refresh skips providers in a cooldown; say so instead of silently doing nothing.
+    private func announceCooldowns(now: Date) {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm"
+        let held = runtimes.compactMap { r -> String? in
+            guard settings.isTracked(r.id), let until = states[r.id]?.backoffUntil, until > now else { return nil }
+            return "\(r.id.displayName) 冷卻中，\(f.string(from: until)) 後才能重試"
+        }
+        guard !held.isEmpty else { return }
+        refreshNotice = held.joined(separator: "；")
+        noticeTask?.cancel()
+        noticeTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(6))
+            if !Task.isCancelled { self?.refreshNotice = nil }
+        }
     }
 
     // Test & Docs preview hooks

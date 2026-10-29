@@ -111,6 +111,64 @@ final class RetryBackoffTests: XCTestCase {
     }
 
     @MainActor
+    private func storeSharing(cache: URL, _ attempts: Attempts, error: ProviderError) -> SnapshotStore {
+        let settings = SettingsStore(defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        return SnapshotStore(runtimes: [FailingRuntime(attempts: attempts, error: error)], settings: settings, cacheURL: cache)
+    }
+
+    private func tempCache() -> URL {
+        let cache = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".json")
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: cache)
+            try? FileManager.default.removeItem(at: cache.deletingPathExtension().appendingPathExtension("cooldowns.json"))
+        }
+        return cache
+    }
+
+    @MainActor
+    func testRateLimitCooldownSurvivesARestart() async {
+        let cache = tempCache()
+        let first = Attempts()
+        await storeSharing(cache: cache, first, error: .rateLimited(retryAfter: 600)).refresh(manual: false)
+        XCTAssertEqual(first.count, 1)
+
+        let second = Attempts()
+        let restarted = storeSharing(cache: cache, second, error: .rateLimited(retryAfter: 600))
+        await restarted.refresh(manual: false)
+        await restarted.refresh(manual: true)
+
+        XCTAssertEqual(second.count, 0)
+        XCTAssertTrue(restarted.states[.claude]?.error?.hasPrefix("請求太頻繁，伺服器要求等到 ") == true)
+    }
+
+    @MainActor
+    func testExpiredCooldownIsNotRestored() async throws {
+        let cache = tempCache()
+        let expired = ["claude": ["until": Date().addingTimeInterval(-60).timeIntervalSinceReferenceDate, "step": 2, "serverRequested": false] as [String: Any]]
+        try JSONSerialization.data(withJSONObject: expired)
+            .write(to: cache.deletingPathExtension().appendingPathExtension("cooldowns.json"))
+
+        let attempts = Attempts()
+        await storeSharing(cache: cache, attempts, error: .timeout).refresh(manual: false)
+
+        XCTAssertEqual(attempts.count, 1)
+    }
+
+    @MainActor
+    func testManualRefreshDuringCooldownExplainsWhy() async {
+        let attempts = Attempts()
+        let store = makeStore(attempts, error: .rateLimited(retryAfter: 600))
+        XCTAssertNil(store.refreshNotice)
+
+        await store.refresh(manual: false)
+        await store.refresh(manual: true)
+
+        XCTAssertEqual(attempts.count, 1)
+        let notice = store.refreshNotice ?? ""
+        XCTAssertNotNil(notice.range(of: #"冷卻中，\d{2}:\d{2} 後才能重試"#, options: .regularExpression), notice)
+    }
+
+    @MainActor
     func testRateLimitMessageNamesTheRetryTime() async {
         let store = makeStore(Attempts(), error: .rateLimited(retryAfter: nil))
 
@@ -139,7 +197,7 @@ private struct OkRuntime: ProviderRuntime {
     }
 }
 
-final class ClaudeRefreshIntervalTests: XCTestCase {
+final class RefreshIntervalTests: XCTestCase {
     @MainActor
     private func attempts(for id: ProviderID, snapshotAgeMinutes: Double, manual: Bool = false) async -> Int {
         let cache = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".json")
@@ -159,26 +217,18 @@ final class ClaudeRefreshIntervalTests: XCTestCase {
     }
 
     @MainActor
-    func testClaudeWaitsAtLeastTenMinutesEvenWhenSettingIsFive() async {
-        let tooSoon = await attempts(for: .claude, snapshotAgeMinutes: 7)
-        let due = await attempts(for: .claude, snapshotAgeMinutes: 11)
+    func testClaudeFollowsTheConfiguredInterval() async {
+        let tooSoon = await attempts(for: .claude, snapshotAgeMinutes: 3)
+        let due = await attempts(for: .claude, snapshotAgeMinutes: 6)
         XCTAssertEqual(tooSoon, 0)
         XCTAssertEqual(due, 1)
     }
 
     @MainActor
-    func testOtherProvidersStillFollowTheConfiguredInterval() async {
-        let count = await attempts(for: .codex, snapshotAgeMinutes: 7)
-        XCTAssertEqual(count, 1)
-    }
-
-    @MainActor
-    func testManualRefreshOfClaudeNeedsAMinimumGapSinceLastSuccess() async {
-        let justUpdated = await attempts(for: .claude, snapshotAgeMinutes: 0.5, manual: true)
-        let older = await attempts(for: .claude, snapshotAgeMinutes: 2, manual: true)
-        let otherProvider = await attempts(for: .codex, snapshotAgeMinutes: 0.5, manual: true)
-        XCTAssertEqual(justUpdated, 0)
-        XCTAssertEqual(older, 1)
-        XCTAssertEqual(otherProvider, 1)
+    func testManualRefreshIsNotGatedByCacheAge() async {
+        let claude = await attempts(for: .claude, snapshotAgeMinutes: 0.5, manual: true)
+        let codex = await attempts(for: .codex, snapshotAgeMinutes: 0.5, manual: true)
+        XCTAssertEqual(claude, 1)
+        XCTAssertEqual(codex, 1)
     }
 }

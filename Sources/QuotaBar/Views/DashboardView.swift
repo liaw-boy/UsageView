@@ -133,12 +133,11 @@ struct DashboardView: View {
     }
 
     private var syncInterval: String {
-        let m = settings.refreshMinutes
-        guard settings.isTracked(.claude), m < SnapshotStore.claudeMinimumRefreshMinutes else { return "每 \(m)m 自動同步" }
-        return "每 \(m)m 自動同步（Claude 每 \(SnapshotStore.claudeMinimumRefreshMinutes)m）"
+        "每 \(settings.refreshMinutes)m 自動同步"
     }
 
     private var updatedSubtitle: String {
+        if let notice = store.refreshNotice { return notice }
         guard let date = store.lastUpdated else { return "唯讀查詢 · \(syncInterval)" }
         let secs = max(0, Int(Date().timeIntervalSince(date)))
         if secs < 30 { return "剛剛更新 · \(syncInterval)" }
@@ -853,6 +852,8 @@ private struct MetricBarRow: View {
         let pct = Theme.formattedPercent(line.usedPercent, showRemaining: showRemaining)
         if line.isNotStarted { return "\(pct) · 可用" }
         guard let reset = line.resetsAt else { return pct }
+        // The window already rolled over, so the cached percentage describes a window that no longer exists.
+        if reset <= Date() { return "已重置 · 待更新" }
         if showDetail { return "\(pct) · \(Self.exactResetText(reset))" }
         let secs = max(0, Int(reset.timeIntervalSinceNow))
         let h = secs / 3600
@@ -1199,9 +1200,6 @@ struct SettingsView: View {
                         }
                     }
                 }
-                Text("Claude 的額度端點限流較嚴，Claude 最短每 \(SnapshotStore.claudeMinimumRefreshMinutes) 分鐘更新一次")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.white.opacity(0.45))
 
                 Divider().overlay(Color.white.opacity(0.08))
 
