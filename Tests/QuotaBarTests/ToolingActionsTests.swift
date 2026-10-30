@@ -129,6 +129,35 @@ final class ToolingActionsTests: XCTestCase {
         XCTAssertEqual(before, try Data(contentsOf: file))
     }
 
+    func testRemovingOpenCodeMCPRefusesFilesThatAreNotOpenCodeConfig() throws {
+        let other = try write("notes/settings.json", #"{"mcp":{"servers":{"drop":{}}}}"#)
+        let item = ToolingItem(tool: .opencode, kind: .mcp, name: "drop", detail: "remote · e.com",
+                               location: other.path, status: .enabled, sharedWith: [], spec: "mcp.servers.drop")
+        let acts = actions!
+        XCTAssertThrowsError(try awaitValue { try await acts.remove(item) })
+        XCTAssertTrue(try String(contentsOf: other, encoding: .utf8).contains("drop"))
+    }
+
+    func testConfigEditKeepsRestrictivePermissionsOnFileAndBackup() throws {
+        let file = try write(".config/opencode/opencode.json", #"{"mcp":{"servers":{"a":{},"b":{}}}}"#)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+        try actions.removeConfigKey(path: ["mcp", "servers", "a"], in: file)
+
+        func mode(_ u: URL) throws -> Int { (try FileManager.default.attributesOfItem(atPath: u.path)[.posixPermissions] as? Int) ?? 0 }
+        XCTAssertEqual(try mode(file), 0o600)
+        let backup = try FileManager.default.contentsOfDirectory(atPath: file.deletingLastPathComponent().path)
+            .first { $0.contains("usageview-bak") }
+        XCTAssertEqual(try mode(file.deletingLastPathComponent().appendingPathComponent(backup ?? "")), 0o600)
+    }
+
+    func testRemovingAnOpenCodePluginWithADashSpecIsRejected() async {
+        let bad = item(.opencode, .plugin, name: "p", spec: "--force")
+        do {
+            _ = try await actions.remove(bad)
+            XCTFail("expected a validation error")
+        } catch {}
+    }
+
     // MARK: - CLI argument building
 
     func testAddRemoteMCPPassesHeadersAsSeparateArguments() async throws {

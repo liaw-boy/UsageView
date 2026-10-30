@@ -206,6 +206,7 @@ public struct ToolingActions: Sendable {
         case .cli:
             switch (item.tool, item.kind) {
             case (.opencode, .plugin):
+                try Self.validateSpec(item.spec ?? "")
                 return try await check(runner.run("opencode", ["plugin", "remove", item.spec ?? ""], timeout: 120))
             case (.claudeCode, .mcp):
                 try Self.validateName(item.name)
@@ -228,7 +229,12 @@ public struct ToolingActions: Sendable {
         guard let path = item.location, FileManager.default.fileExists(atPath: path) else {
             throw ToolingActionError.failed("找不到設定檔。")
         }
-        return URL(fileURLWithPath: path)
+        // Only OpenCode's own config files may be edited, whatever the item claims as its location.
+        let url = URL(fileURLWithPath: path).standardizedFileURL
+        guard url.deletingLastPathComponent().path == openCodeBase.standardizedFileURL.path,
+              ["opencode.json", "opencode.jsonc"].contains(url.lastPathComponent)
+        else { throw ToolingActionError.notAllowed("只能編輯 OpenCode 的設定檔。") }
+        return url
     }
 
     /// Deletes one key from an OpenCode config file. OpenCode has no `mcp remove` command and its docs say to
@@ -236,8 +242,11 @@ public struct ToolingActions: Sendable {
     func removeConfigKey(path: [String], in file: URL) throws {
         let text = try String(contentsOf: file, encoding: .utf8)
         let updated = try JSONCText.removingKey(path: path, in: text)
+        let original = (try? FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions]) as? NSNumber
         try backup(file)
         try Data(updated.utf8).write(to: file, options: .atomic)
+        // An atomic write replaces the inode; keep the original's (often 0600) permissions.
+        if let original { try? FileManager.default.setAttributes([.posixPermissions: original], ofItemAtPath: file.path) }
     }
 
     @discardableResult
@@ -245,6 +254,7 @@ public struct ToolingActions: Sendable {
         let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "")
         let dest = file.deletingLastPathComponent().appendingPathComponent("\(file.lastPathComponent).usageview-bak-\(stamp)")
         try FileManager.default.copyItem(at: file, to: dest)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: dest.path)
         return dest
     }
 

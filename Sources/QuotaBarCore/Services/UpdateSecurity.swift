@@ -5,7 +5,7 @@ import Foundation
 /// `scripts/gen_signing_key.swift`. The private half never lives in this repository.
 /// While empty, every update is refused: an unverifiable download is never installed.
 enum UpdateSigningKey {
-    static let publicKeyBase64 = ""
+    static let publicKeyBase64 = "RwWcVvq57l+xQxtSBfa5vqQaMmEN+Mh9+7KI00PM+RY="
 
     static var publicKey: Data { Data(base64Encoded: publicKeyBase64) ?? Data() }
 }
