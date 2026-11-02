@@ -1204,6 +1204,12 @@ struct SettingsView: View {
                 Divider().overlay(Color.white.opacity(0.08))
 
                 SettingsToggleRow(
+                    title: "從 Claude Code 狀態列讀取額度",
+                    subtitle: "即時且不易被限流；會修改 ~/.claude/settings.json（先備份，原本的狀態列照常顯示），關閉即還原",
+                    isOn: $settings.claudeStatusLineBridge
+                )
+
+                SettingsToggleRow(
                     title: "額度警示與滿血重置通知",
                     subtitle: "超過 80% / 95% 警告，以及額度重置回滿時通知",
                     isOn: $settings.notificationsEnabled

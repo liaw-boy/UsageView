@@ -49,6 +49,7 @@ final class AppContainer {
     let statusItem: StatusItemController
     private var cancellable: AnyCancellable?
     private var opencodeCancellable: AnyCancellable?
+    private var bridgeCancellable: AnyCancellable?
 
     init() {
         store = SnapshotStore(settings: settings, network: NetworkMonitor())
@@ -71,6 +72,17 @@ final class AppContainer {
         .sink { [weak self] _ in
             Task { await self?.store.refreshNow(.opencode) }
         }
+
+        // Installs on launch too, so a new Mac gets it without setup. Untracked Claude leaves Claude Code's config alone.
+        bridgeCancellable = settings.$claudeStatusLineBridge
+            .combineLatest(settings.$trackedProviders.map { $0.contains(.claude) }.removeDuplicates())
+            .sink { enabled, tracked in
+                do {
+                    if !enabled { try ClaudeStatusLineBridge().uninstall() } else if tracked { try ClaudeStatusLineBridge().install() }
+                } catch {
+                    NSLog("UsageView: Claude status line bridge: %@", error.localizedDescription)
+                }
+            }
 
         cancellable = settings.$trackedProviders
             .dropFirst()

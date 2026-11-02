@@ -218,6 +218,9 @@ public struct ProviderSnapshot: Codable, Sendable, Equatable {
     public var extraUsageText: String?
     public var localSpend: LocalSpendSummary?
     public var windowSpend: WindowSpend?
+    /// When the full API was last read, if `fetchedAt` came from a lighter local source (Claude's status line file).
+    public var apiFetchedAt: Date?
+    public var lastAPIFetch: Date { apiFetchedAt ?? fetchedAt }
 
     public init(
         provider: ProviderID,

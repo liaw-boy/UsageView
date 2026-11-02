@@ -99,6 +99,24 @@ enum ClaudeMapper {
         return lines
     }
 
+    /// Reads the file `ClaudeStatusLineBridge` writes: `{"written_at": <epoch>, "rate_limits": {...}}` with
+    /// `used_percentage` and epoch `resets_at` per window. Any local process can write it, so values are range-checked
+    /// (NaN or huge numbers would trap later in Int conversions).
+    static func statusLineLimits(_ body: [String: Any]) -> (writtenAt: Date, lines: [MetricLine])? {
+        func epoch(_ v: Any?) -> Date? {
+            Parse.number(v).flatMap { (0..<4e9).contains($0) ? Date(timeIntervalSince1970: $0) : nil }
+        }
+        guard let written = epoch(body["written_at"]),
+              let limits = body["rate_limits"] as? [String: Any] else { return nil }
+        let lines = windows.prefix(2).compactMap { spec -> MetricLine? in
+            guard let w = limits[spec.key] as? [String: Any], let used = Parse.number(w["used_percentage"]),
+                  used.isFinite else { return nil }
+            return MetricLine(id: spec.key, label: spec.label, kind: spec.kind, usedPercent: min(max(used, 0), 100),
+                              resetsAt: epoch(w["resets_at"]))
+        }
+        return lines.isEmpty ? nil : (written, lines)
+    }
+
     static func formatPlan(subscriptionType: String?, rateLimitTier: String?) -> String? {
         guard let raw = subscriptionType?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
             return nil

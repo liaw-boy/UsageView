@@ -41,6 +41,8 @@ public final class SnapshotStore: ObservableObject {
     public static let providerTimeout: TimeInterval = 120
     static let backoffSteps: [TimeInterval] = [2, 5, 10, 20, 40].map { $0 * 60 }
     static let failureBackoff: TimeInterval = 60
+    /// While Claude's status line file is current, the API is only needed for what the file lacks (scoped model limits, extra usage).
+    static let claudeAPIIntervalWithStatusLine: TimeInterval = 30 * 60
 
     static func rateLimitMessage(until: Date, serverRequested: Bool) -> String {
         let f = DateFormatter()
@@ -52,6 +54,9 @@ public final class SnapshotStore: ObservableObject {
     private let settings: SettingsStore
     private let cacheURL: URL
     private let scanLocalMetadata: Bool
+    private let claudeLimitsURL: URL?
+    private var claudeLimitsWrittenAt: Date?
+    private var claudeLimitsModified: Date?
     private var refreshTimer: Timer?
     private var carouselTimer: Timer?
     private var lastManualRefresh: Date?
@@ -62,12 +67,15 @@ public final class SnapshotStore: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
 
     public init(runtimes: [ProviderRuntime] = ProviderCatalog.all(), settings: SettingsStore, cacheURL: URL? = nil,
-                network: NetworkMonitoring? = nil, networkRestoreDelay: TimeInterval = 2) {
+                network: NetworkMonitoring? = nil, networkRestoreDelay: TimeInterval = 2, claudeLimitsURL: URL? = nil) {
         self.runtimes = runtimes
         self.settings = settings
         self.network = network
         self.networkRestoreDelay = networkRestoreDelay
         self.scanLocalMetadata = (cacheURL == nil)
+        self.claudeLimitsURL = claudeLimitsURL ?? (cacheURL == nil
+            ? ClaudeStatusLineBridge().limitsURL
+            : nil)
         self.cacheURL = cacheURL ?? FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("QuotaBar/snapshots.json")
         for r in runtimes { states[r.id] = ProviderState() }
@@ -109,7 +117,7 @@ public final class SnapshotStore: ObservableObject {
 
     private func scheduleRefreshTimer(minutes: Int) {
         refreshTimer?.invalidate()
-        // Check every 30s whether any tracked provider's persisted `fetchedAt` has reached `refreshMinutes`.
+        // Also re-reads Claude's status line file (mtime check only) on each tick. Check every 30s whether any tracked provider's persisted `fetchedAt` has reached `refreshMinutes`.
         // Because `fetchedAt` is saved on disk, restarting the app never resets or prematurely triggers API calls.
         let t = Timer(timeInterval: 30, repeats: true) { [weak self] _ in
             Task { @MainActor in await self?.refresh(manual: false) }
@@ -167,25 +175,29 @@ public final class SnapshotStore: ObservableObject {
 
     /// The refresh rules, in one place:
     /// - Automatic: never while offline; a provider is due once its last success is older than
-    ///   max(user interval, that provider's minimum); skipped during a 429 cooldown or the short pause after any other failure.
+    ///   the user interval (Claude: 30 min while its status line file is current, since that file already supplies
+    ///   5H/7D); skipped during a 429 cooldown or the short pause after any other failure.
     /// - Manual: overrides cache age and the short failure pause, never a 429 cooldown; at most one manual refresh
     ///   per `manualThrottle`.
     /// - Connectivity restored / wake: one automatic pass after clearing the short failure pause (429 cooldowns stay).
     func shouldFetch(_ id: ProviderID, state s: ProviderState, manual: Bool, now: Date) -> Bool {
         guard settings.isTracked(id), !s.isRefreshing else { return false }
         guard (s.backoffUntil ?? .distantPast) <= now else { return false }
-        let fetchedAt = s.snapshot?.fetchedAt
         if manual {
             return true
         }
         guard (s.retryAfter ?? .distantPast) <= now else { return false }
-        guard let fetchedAt else { return true } // Never fetched before
-        let requiredAge = TimeInterval(settings.refreshMinutes * 60)
-        return now.timeIntervalSince(fetchedAt) >= requiredAge
+        guard let lastAPI = s.snapshot?.lastAPIFetch else { return true } // Never fetched before
+        var requiredAge = TimeInterval(settings.refreshMinutes * 60)
+        if id == .claude, let written = claudeLimitsWrittenAt, now.timeIntervalSince(written) < requiredAge {
+            requiredAge = max(requiredAge, Self.claudeAPIIntervalWithStatusLine)
+        }
+        return now.timeIntervalSince(lastAPI) >= requiredAge
     }
 
     /// Refreshes the providers that are due under the rules in `shouldFetch`.
     public func refresh(manual: Bool = false) async {
+        applyClaudeStatusLineLimits()
         if !manual, !isOnline { return }
         let now = Date()
         if manual {
@@ -217,6 +229,33 @@ public final class SnapshotStore: ObservableObject {
         if scanLocalMetadata {
             Task { await self.refreshLocalMetadata() }
         }
+    }
+
+    /// Uses the limits Claude Code's status line last saw when they are newer than our snapshot, so the card stays
+    /// current without calling the rate-limited usage endpoint. Windows the file lacks (e.g. scoped model limits) keep
+    /// their last API values; a 429 cooldown stays in place but no longer shows as an error.
+    func applyClaudeStatusLineLimits() {
+        guard settings.isTracked(.claude), let url = claudeLimitsURL,
+              let modified = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date,
+              modified != claudeLimitsModified else { return }
+        claudeLimitsModified = modified
+        guard let body = Parse.object(try? Data(contentsOf: url)),
+              let (writtenAt, fresh) = ClaudeMapper.statusLineLimits(body),
+              writtenAt <= Date().addingTimeInterval(60)
+        else { return }
+        claudeLimitsWrittenAt = writtenAt
+        guard writtenAt > (states[.claude]?.snapshot?.fetchedAt ?? .distantPast) else { return }
+        var s = states[.claude] ?? ProviderState()
+        let old = s.snapshot
+        var lines = old?.lines.map { line in fresh.first { $0.id == line.id } ?? line } ?? []
+        lines += fresh.filter { f in !lines.contains { $0.id == f.id } }
+        s.snapshot = ProviderSnapshot(provider: .claude, lines: lines, fetchedAt: writtenAt, planName: old?.planName,
+                                      extraUsageText: old?.extraUsageText, localSpend: old?.localSpend,
+                                      windowSpend: old?.windowSpend)
+        s.snapshot?.apiFetchedAt = old?.lastAPIFetch ?? .distantPast // never read the API yet: due right away
+        s.error = nil
+        states[.claude] = s
+        saveCache()
     }
 
     /// Re-runs one provider immediately, bypassing the refresh interval. Only meant for local-only providers

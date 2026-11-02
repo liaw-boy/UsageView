@@ -63,6 +63,10 @@ public final class SettingsStore: ObservableObject {
     @Published public var notificationsEnabled: Bool {
         didSet { defaults.set(notificationsEnabled, forKey: "notifications") }
     }
+    /// Read Claude limits from Claude Code's status line (installs `ClaudeStatusLineBridge`) instead of mostly polling the API.
+    @Published public var claudeStatusLineBridge: Bool {
+        didSet { defaults.set(claudeStatusLineBridge, forKey: "claudeStatusLineBridge") }
+    }
     /// 1. 啟動哪些服務的追蹤（未勾選者完全不發送請求、不讀憑證）
     @Published public var trackedProviders: Set<ProviderID> {
         didSet { defaults.set(trackedProviders.map(\.rawValue), forKey: "trackedProviders") }
@@ -131,6 +135,7 @@ public final class SettingsStore: ObservableObject {
         refreshMinutes = max(m == 0 ? 5 : m, Self.minimumRefreshMinutes)
         showRemaining = defaults.bool(forKey: "showRemaining")
         notificationsEnabled = defaults.object(forKey: "notifications") as? Bool ?? true
+        claudeStatusLineBridge = defaults.object(forKey: "claudeStatusLineBridge") as? Bool ?? true
 
         menuBarDisplayMode = MultiProviderDisplayMode(rawValue: defaults.string(forKey: "menuBarDisplayMode") ?? "") ?? .all
         menuBarMetricMode = MenuBarMetricMode(rawValue: defaults.string(forKey: "menuBarMetricMode") ?? "") ?? .sessionAndWeekly

@@ -232,3 +232,71 @@ final class RefreshIntervalTests: XCTestCase {
         XCTAssertEqual(codex, 1)
     }
 }
+
+final class ClaudeStatusLineLimitsTests: XCTestCase {
+    func testMapperReadsStatusLineFile() throws {
+        let body: [String: Any] = [
+            "written_at": 1_800_000_000,
+            "rate_limits": [
+                "five_hour": ["used_percentage": 23.5, "resets_at": 1_800_010_000],
+                "seven_day": ["used_percentage": 140, "resets_at": 1_800_500_000],
+            ],
+        ]
+        let (writtenAt, lines) = try XCTUnwrap(ClaudeMapper.statusLineLimits(body))
+        XCTAssertEqual(writtenAt, Date(timeIntervalSince1970: 1_800_000_000))
+        XCTAssertEqual(lines.map(\.id), ["five_hour", "seven_day"])
+        XCTAssertEqual(lines[0].usedPercent, 23.5)
+        XCTAssertEqual(lines[0].resetsAt, Date(timeIntervalSince1970: 1_800_010_000))
+        XCTAssertEqual(lines[1].usedPercent, 100) // clamped
+        XCTAssertNil(ClaudeMapper.statusLineLimits(["written_at": 1, "rate_limits": [String: Any]()]))
+        XCTAssertNil(ClaudeMapper.statusLineLimits(["rate_limits": body["rate_limits"]!]))
+        // Forged values must not reach Int conversions: NaN is dropped, an absurd reset time is ignored.
+        let forged = ClaudeMapper.statusLineLimits(["written_at": 1_800_000_000, "rate_limits": [
+            "five_hour": ["used_percentage": "nan"],
+            "seven_day": ["used_percentage": 3, "resets_at": "1e300"],
+        ]])
+        XCTAssertEqual(forged?.lines.map(\.id), ["seven_day"])
+        XCTAssertNil(forged?.lines.first?.resetsAt)
+        XCTAssertNil(ClaudeMapper.statusLineLimits(["written_at": "1e300", "rate_limits": body["rate_limits"]!]))
+    }
+
+    @MainActor
+    func testNewerFileUpdatesClaudeWithoutCallingTheAPI() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: dir) }
+        let cache = dir.appendingPathComponent("snapshots.json")
+        let limits = dir.appendingPathComponent("limits.json")
+        let old = Date().addingTimeInterval(-20 * 60)
+        try JSONEncoder().encode([ProviderSnapshot(provider: .claude, lines: [
+            MetricLine(id: "five_hour", label: "5H", kind: .session, usedPercent: 90, resetsAt: nil),
+            MetricLine(id: "weekly_fable", label: "Fable · 7D", kind: .weekly, usedPercent: 5, resetsAt: nil),
+        ], fetchedAt: old)]).write(to: cache)
+        let written = Date().addingTimeInterval(-30).timeIntervalSince1970
+        try JSONSerialization.data(withJSONObject: [
+            "written_at": written,
+            "rate_limits": ["five_hour": ["used_percentage": 12, "resets_at": written + 3600]],
+        ]).write(to: limits)
+
+        let counter = Attempts()
+        let settings = SettingsStore(defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        settings.refreshMinutes = 5
+        let store = SnapshotStore(runtimes: [OkRuntime(id: .claude, attempts: counter)], settings: settings,
+                                  cacheURL: cache, claudeLimitsURL: limits)
+        await store.refresh(manual: false)
+
+        XCTAssertEqual(counter.count, 0)
+        let snap = try XCTUnwrap(store.states[.claude]?.snapshot)
+        XCTAssertEqual(snap.lines.map(\.id), ["five_hour", "weekly_fable"])
+        XCTAssertEqual(snap.lines[0].usedPercent, 12)
+        XCTAssertEqual(snap.lines[1].usedPercent, 5)
+        XCTAssertEqual(snap.fetchedAt.timeIntervalSince1970, written, accuracy: 0.001)
+        XCTAssertEqual(snap.lastAPIFetch.timeIntervalSince1970, old.timeIntervalSince1970, accuracy: 0.001)
+
+        // A current file stretches the API interval from 5 to 30 min: 20 min since the last API read (above) was
+        // not due, 60 min is.
+        var stale = try XCTUnwrap(store.states[.claude])
+        stale.snapshot?.apiFetchedAt = Date().addingTimeInterval(-60 * 60)
+        XCTAssertTrue(store.shouldFetch(.claude, state: stale, manual: false, now: Date()))
+    }
+}
