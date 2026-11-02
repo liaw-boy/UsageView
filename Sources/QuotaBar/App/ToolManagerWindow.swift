@@ -364,7 +364,7 @@ private struct AddSheet: View {
                 }
                 Text(tool == .opencode
                      ? "建議填 {env:MY_TOKEN} 這種環境變數參照，不要把金鑰寫進設定檔。遠端伺服器多半支援 OAuth，可先留空再用鑰匙按鈕授權。"
-                     : "機密值只會傳給 \(tool.displayName) 的 CLI，UsageView 不會儲存或顯示。")
+                     : "UsageView 不會儲存或顯示機密值，但 \(tool.displayName) 的 CLI 只能用命令列參數接收，執行的幾秒內同一台電腦上的其他程式可能看到。請盡量用可隨時撤銷的 token。")
                     .font(.system(size: 10.5)).foregroundStyle(.white.opacity(0.5))
                     .fixedSize(horizontal: false, vertical: true)
             case .agent:

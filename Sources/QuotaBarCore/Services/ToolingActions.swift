@@ -328,6 +328,9 @@ public struct ToolingActions: Sendable {
     }
 
     @discardableResult
+    /// Neither `opencode mcp add` nor `claude mcp add` accepts secrets on stdin or through the environment, so
+    /// header and env values travel as command-line arguments and are visible in the process list while the CLI runs.
+    /// The UI says so; keep this in mind before adding any new secret-carrying argument.
     public func addMCP(name: String, spec: NewMCP, for tool: ToolID) async throws -> String {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         try Self.validateName(name)
