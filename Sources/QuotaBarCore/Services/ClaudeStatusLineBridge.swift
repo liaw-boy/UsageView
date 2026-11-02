@@ -55,6 +55,14 @@ public struct ClaudeStatusLineBridge: Sendable {
         ((statusLine as? [String: Any])?["command"] as? String)?.contains("usageview-statusline.sh") == true
     }
 
+    /// Claude Code has appeared since launch and the bridge was never set up (cheap: two stat calls). False after the
+    /// user switched to another status line, which `install()` would leave alone anyway.
+    public var needsInstall: Bool {
+        let fm = FileManager.default
+        return fm.fileExists(atPath: claudeDir.path) && !fm.fileExists(atPath: scriptURL.path)
+            && !fm.fileExists(atPath: originalURL.path)
+    }
+
     /// Installs (or refreshes) the wrapper. Does nothing when Claude Code has never run on this Mac, and never
     /// re-wraps a status line the user switched to after we installed (turning the setting off and on again does).
     public func install() throws {

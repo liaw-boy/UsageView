@@ -50,6 +50,7 @@ final class AppContainer {
     private var cancellable: AnyCancellable?
     private var opencodeCancellable: AnyCancellable?
     private var bridgeCancellable: AnyCancellable?
+    private var bridgeRetry: AnyCancellable?
 
     init() {
         store = SnapshotStore(settings: settings, network: NetworkMonitor())
@@ -77,11 +78,13 @@ final class AppContainer {
         bridgeCancellable = settings.$claudeStatusLineBridge
             .combineLatest(settings.$trackedProviders.map { $0.contains(.claude) }.removeDuplicates())
             .sink { enabled, tracked in
-                do {
-                    if !enabled { try ClaudeStatusLineBridge().uninstall() } else if tracked { try ClaudeStatusLineBridge().install() }
-                } catch {
-                    NSLog("UsageView: Claude status line bridge: %@", error.localizedDescription)
-                }
+                Self.updateBridge { if !enabled { try $0.uninstall() } else if tracked { try $0.install() } }
+            }
+        // Claude Code may be run for the first time after UsageView started; pick it up without a relaunch.
+        bridgeRetry = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
+            .sink { [weak self] _ in
+                guard let settings = self?.settings, settings.claudeStatusLineBridge, settings.isTracked(.claude) else { return }
+                Self.updateBridge { if $0.needsInstall { try $0.install() } }
             }
 
         cancellable = settings.$trackedProviders
@@ -90,6 +93,14 @@ final class AppContainer {
             .sink { [weak self] _ in
                 Task { await self?.store.refresh(manual: false) }
             }
+    }
+}
+
+extension AppContainer {
+    static func updateBridge(_ action: (ClaudeStatusLineBridge) throws -> Void) {
+        do { try action(ClaudeStatusLineBridge()) } catch {
+            NSLog("UsageView: Claude status line bridge: %@", error.localizedDescription)
+        }
     }
 }
 

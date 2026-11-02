@@ -41,7 +41,9 @@ final class ClaudeStatusLineBridgeTests: XCTestCase {
 
     func testInstallWithoutStatusLineThenUninstallRemovesIt() throws {
         let bridge = ClaudeStatusLineBridge(claudeDir: try tempClaudeDir())
+        XCTAssertTrue(bridge.needsInstall)
         try bridge.install() // no settings.json yet
+        XCTAssertFalse(bridge.needsInstall)
         XCTAssertTrue(ClaudeStatusLineBridge.isOurs(try settings(bridge)["statusLine"]))
         XCTAssertFalse(FileManager.default.fileExists(atPath: bridge.nextURL.path))
         try bridge.uninstall()
@@ -55,6 +57,7 @@ final class ClaudeStatusLineBridgeTests: XCTestCase {
         try JSONSerialization.data(withJSONObject: mine).write(to: bridge.settingsURL)
 
         try bridge.install() // next app launch
+        XCTAssertFalse(bridge.needsInstall)
         XCTAssertEqual((try settings(bridge)["statusLine"] as? [String: Any])?["command"] as? String, "echo mine")
 
         try bridge.uninstall() // setting off, then on again: wraps the new one
@@ -81,6 +84,7 @@ final class ClaudeStatusLineBridgeTests: XCTestCase {
 
     func testMissingClaudeDirAndBrokenSettingsAreLeftAlone() throws {
         let missing = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        XCTAssertFalse(ClaudeStatusLineBridge(claudeDir: missing).needsInstall)
         try ClaudeStatusLineBridge(claudeDir: missing).install()
         XCTAssertFalse(FileManager.default.fileExists(atPath: missing.path))
 
