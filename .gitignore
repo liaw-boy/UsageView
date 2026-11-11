@@ -1,0 +1,16 @@
+reference-*/
+.build/
+.swiftpm/
+*.app/
+*.zip
+*.dmg
+*.xcodeproj
+*.xcworkspace
+.DS_Store
+.env*
+*.log
+*.pem
+*.key
+credentials*.json
+auth.json
+*.zip.sig
