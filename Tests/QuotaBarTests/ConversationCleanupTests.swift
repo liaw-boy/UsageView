@@ -110,4 +110,66 @@ final class ConversationCleanupTests: XCTestCase {
         XCTAssertTrue(fm.fileExists(atPath: outside.path))
         XCTAssertTrue(fm.fileExists(atPath: link.path))
     }
+
+    func testAntigravityScannerFindsStandardSessionsAndSkipsBackups() async throws {
+        let fm = FileManager.default
+        let geminiRoot = fm.temporaryDirectory.appendingPathComponent("gemini-" + UUID().uuidString)
+        defer { try? fm.removeItem(at: geminiRoot) }
+
+        let convDir = geminiRoot.appendingPathComponent("antigravity/conversations")
+        let brainLogs = geminiRoot.appendingPathComponent("antigravity/brain/conv-1234/.system_generated/logs")
+        let backupConvDir = geminiRoot.appendingPathComponent("antigravity-backup/conversations")
+        try fm.createDirectory(at: convDir, withIntermediateDirectories: true)
+        try fm.createDirectory(at: brainLogs, withIntermediateDirectories: true)
+        try fm.createDirectory(at: backupConvDir, withIntermediateDirectories: true)
+
+        try Data("sqlite-bytes".utf8).write(to: convDir.appendingPathComponent("conv-1234.db"))
+        try Data("wal-bytes".utf8).write(to: convDir.appendingPathComponent("conv-1234.db-wal"))
+        try Data("backup-bytes".utf8).write(to: backupConvDir.appendingPathComponent("old-backup.db"))
+        let transcript = """
+        {"type":"USER_INPUT","created_at":"2026-05-01T10:00:00Z","content":"<USER_REQUEST>Fix the build</USER_REQUEST>"}
+        {"type":"PLANNER_RESPONSE","created_at":"2026-05-01T10:01:00Z","content":"Build fixed."}
+        """
+        try transcript.write(to: brainLogs.appendingPathComponent("transcript.jsonl"), atomically: true, encoding: .utf8)
+
+        let manager = ConversationManager(geminiRoot: geminiRoot)
+        let found = await manager.scanAntigravitySessions()
+        XCTAssertEqual(found.count, 1)
+        let session = try XCTUnwrap(found.first)
+        XCTAssertEqual(session.id, "conv-1234")
+        XCTAssertEqual(session.prompt, "Fix the build")
+        XCTAssertNotNil(session.subagentDirPath)
+
+        let preview = await manager.loadPreviewMessages(session: session, limit: 10)
+        XCTAssertEqual(preview.map(\.role), ["User", "Antigravity"])
+        XCTAssertEqual(preview.map(\.text), ["Fix the build", "Build fixed."])
+    }
+
+    func testCodexPreviewAndExportMessages() async throws {
+        let fm = FileManager.default
+        let home = fm.temporaryDirectory.appendingPathComponent("codex-preview-" + UUID().uuidString)
+        defer { try? fm.removeItem(at: home) }
+        let dayDir = home.appendingPathComponent("sessions/2026/05/01")
+        try fm.createDirectory(at: dayDir, withIntermediateDirectories: true)
+
+        let rollout = """
+        {"type":"session_meta","timestamp":"2026-05-01T10:00:00Z","payload":{"cwd":"/work/demo-app"}}
+        {"type":"response_item","timestamp":"2026-05-01T10:00:01Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context>skip me</environment_context>"}]}}
+        {"type":"response_item","timestamp":"2026-05-01T10:00:02Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Explain this crash"}]}}
+        {"type":"response_item","timestamp":"2026-05-01T10:00:05Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"The crash is caused by a nil unwrap."}]}}
+        """
+        try rollout.write(to: dayDir.appendingPathComponent("rollout-test.jsonl"), atomically: true, encoding: .utf8)
+
+        let manager = ConversationManager(codexHome: home)
+        let sessions = await manager.scanCodexSessions()
+        let session = try XCTUnwrap(sessions.first)
+        XCTAssertEqual(session.prompt, "Explain this crash")
+
+        let preview = await manager.loadPreviewMessages(session: session, limit: 10)
+        XCTAssertEqual(preview.map(\.role), ["User", "Codex"])
+        XCTAssertEqual(preview.map(\.text), ["Explain this crash", "The crash is caused by a nil unwrap."])
+
+        let exported = await manager.loadAllMessagesForExport(session: session)
+        XCTAssertEqual(exported.count, 2)
+    }
 }

@@ -84,6 +84,28 @@ final class UsageStatisticsTests: XCTestCase {
         XCTAssertEqual(LocalUsageScanner.parseCodexJSONL(Data(codex.utf8)).first?.project, "sample-api")
     }
 
+    func testCleanModelNameDoesNotMisclassifyGeminiAsCodexMini() {
+        XCTAssertEqual(LocalUsageScanner.cleanModelName("gemini-4-neon", provider: .antigravity), "Gemini 4 Neon")
+        XCTAssertEqual(LocalUsageScanner.cleanModelName("gemini-4-hydrogen-tiered-high", provider: .antigravity), "Gemini 4 Hydrogen")
+        XCTAssertEqual(LocalUsageScanner.cleanModelName("gemini-4-argon-trial", provider: .antigravity), "Gemini 4 Argon")
+        XCTAssertEqual(LocalUsageScanner.cleanModelName("gemini-future-preview", provider: .antigravity), "Gemini Pro")
+        XCTAssertEqual(LocalUsageScanner.cleanModelName("codex-mini-latest", provider: .codex), "Codex Mini")
+    }
+
+    func testCodexParserDeduplicatesTokenCountAndDoesNotDoubleCountReasoning() {
+        let lines = [
+            #"{"type":"session_meta","payload":{"cwd":"/work/sample-api"}}"#,
+            #"{"type":"turn_context","payload":{"model":"gpt-5.3-codex"}}"#,
+            // output_tokens (50) already includes reasoning_output_tokens (20); total should be 100 + 50 = 150.
+            #"{"type":"event_msg","timestamp":"2030-06-12T10:00:00Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100,"cached_input_tokens":40,"output_tokens":50,"reasoning_output_tokens":20,"total_tokens":150},"total_token_usage":{"input_tokens":100,"cached_input_tokens":40,"output_tokens":50,"reasoning_output_tokens":20,"total_tokens":150}}}}"#,
+            // Exact duplicate total_token_usage emitted by Codex must be ignored.
+            #"{"type":"event_msg","timestamp":"2030-06-12T10:00:01Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100,"cached_input_tokens":40,"output_tokens":50,"reasoning_output_tokens":20,"total_tokens":150},"total_token_usage":{"input_tokens":100,"cached_input_tokens":40,"output_tokens":50,"reasoning_output_tokens":20,"total_tokens":150}}}}"#,
+        ].joined(separator: "\n")
+        let records = LocalUsageScanner.parseCodexJSONL(Data(lines.utf8))
+        XCTAssertEqual(records.count, 1)
+        XCTAssertEqual(records[0].tokens, 150)
+    }
+
     // MARK: - Insights
 
     private func day(_ offset: Int, cost: Double, tokens: Int = 10) -> DailyUsageItem {

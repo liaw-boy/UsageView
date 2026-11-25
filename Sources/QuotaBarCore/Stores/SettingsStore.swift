@@ -50,6 +50,19 @@ public enum MenuBarIconStyle: String, CaseIterable, Codable, Sendable {
     }
 }
 
+/// Visual layout for the always-on-top floating ball widget.
+public enum FloatingBallStyle: String, CaseIterable, Codable, Sendable {
+    case orb  // 精簡圓球（單一輪播）
+    case pill // 膠囊條（並排顯示）
+
+    public var title: String {
+        switch self {
+        case .orb: "圓球"
+        case .pill: "膠囊"
+        }
+    }
+}
+
 @MainActor
 public final class SettingsStore: ObservableObject {
     private let defaults: UserDefaults
@@ -123,6 +136,40 @@ public final class SettingsStore: ObservableObject {
         didSet { defaults.set(cleanupMinSizeMB, forKey: "cleanupMinSizeMB") }
     }
 
+    /// 懸浮球開關與外觀設定（解決狀態列空間不足）
+    @Published public var floatingBallEnabled: Bool {
+        didSet {
+            defaults.set(floatingBallEnabled, forKey: "floatingBallEnabled")
+            if !floatingBallEnabled && hideMenuBarWhenFloating {
+                hideMenuBarWhenFloating = false
+            }
+        }
+    }
+    @Published public var floatingBallStyle: FloatingBallStyle {
+        didSet { defaults.set(floatingBallStyle.rawValue, forKey: "floatingBallStyle") }
+    }
+    @Published public var floatingBallOpacity: Double {
+        didSet { defaults.set(floatingBallOpacity, forKey: "floatingBallOpacity") }
+    }
+    @Published public var hideMenuBarWhenFloating: Bool {
+        didSet { defaults.set(hideMenuBarWhenFloating, forKey: "hideMenuBarWhenFloating") }
+    }
+
+    public static let floatingBallOpacityOptions: [Double] = [0.60, 0.80, 0.95]
+
+    public func savedFloatingBallOrigin() -> CGPoint? {
+        guard defaults.object(forKey: "floatingBallX") != nil,
+              defaults.object(forKey: "floatingBallY") != nil
+        else { return nil }
+        return CGPoint(x: defaults.double(forKey: "floatingBallX"),
+                       y: defaults.double(forKey: "floatingBallY"))
+    }
+
+    public func saveFloatingBallOrigin(_ origin: CGPoint) {
+        defaults.set(Double(origin.x), forKey: "floatingBallX")
+        defaults.set(Double(origin.y), forKey: "floatingBallY")
+    }
+
     public static let cleanupAgeOptions = [7, 14, 30, 60, 90]
     public static let cleanupSizeOptions = [10, 50, 100, 500, 1000]
 
@@ -152,6 +199,13 @@ public final class SettingsStore: ObservableObject {
         cleanupMinSizeMB = size == 0 ? 50 : min(max(size, 1), 5000)
         let cs = defaults.integer(forKey: "carouselSeconds")
         carouselSeconds = cs > 0 ? cs : 4
+
+        let fbEnabled = defaults.bool(forKey: "floatingBallEnabled")
+        floatingBallEnabled = fbEnabled
+        floatingBallStyle = FloatingBallStyle(rawValue: defaults.string(forKey: "floatingBallStyle") ?? "") ?? .pill
+        let rawOpacity = defaults.object(forKey: "floatingBallOpacity") as? Double ?? 0.95
+        floatingBallOpacity = min(max(rawOpacity, 0.45), 1.0)
+        hideMenuBarWhenFloating = fbEnabled && defaults.bool(forKey: "hideMenuBarWhenFloating")
 
         let all = Set(ProviderID.allCases)
         let initialTracked: Set<ProviderID>

@@ -47,6 +47,7 @@ final class AppContainer {
     let updater = UpdateService()
     let notifier: QuotaNotifier
     let statusItem: StatusItemController
+    let floatingBall: FloatingBallController
     private var cancellable: AnyCancellable?
     private var opencodeCancellable: AnyCancellable?
     private var bridgeCancellable: AnyCancellable?
@@ -56,6 +57,7 @@ final class AppContainer {
         store = SnapshotStore(settings: settings, network: NetworkMonitor())
         notifier = QuotaNotifier(store: store, settings: settings)
         statusItem = StatusItemController(store: store, settings: settings, updater: updater)
+        floatingBall = FloatingBallController(store: store, settings: settings, statusItem: statusItem)
         MainWindowController.shared.configure(store: store, settings: settings, updater: updater)
         // Only fetches providers that have no cached snapshot or whose persisted `fetchedAt` has exceeded `refreshMinutes`.
         // Restarting the app never re-fetches fresh cached providers!

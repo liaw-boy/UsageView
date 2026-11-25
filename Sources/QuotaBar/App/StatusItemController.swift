@@ -66,6 +66,13 @@ final class StatusItemController: NSObject, ObservableObject, NSPopoverDelegate 
             Task { @MainActor in self?.store.systemDidWake() }
         }
 
+        Publishers.CombineLatest(settings.$floatingBallEnabled, settings.$hideMenuBarWhenFloating)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] ballOn, hideBar in
+                self?.statusItem.isVisible = !(ballOn && hideBar)
+            }
+            .store(in: &cancellables)
+
         updateStrip()
     }
 
@@ -111,6 +118,10 @@ final class StatusItemController: NSObject, ObservableObject, NSPopoverDelegate 
     }
 
     private func togglePopover(from button: NSStatusBarButton) {
+        togglePopover(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+    }
+
+    func togglePopover(relativeTo rect: NSRect, of view: NSView, preferredEdge: NSRectEdge) {
         if popover.isShown {
             popover.performClose(nil)
             showingSettings = false
@@ -123,7 +134,7 @@ final class StatusItemController: NSObject, ObservableObject, NSPopoverDelegate 
             showingStats = false
             showingConversations = false
             statsProvider = nil
-            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            popover.show(relativeTo: rect, of: view, preferredEdge: preferredEdge)
             popover.contentViewController?.view.window?.makeKey()
             syncPopoverSize()
             startMonitoringOutsideClicks()
@@ -147,6 +158,14 @@ final class StatusItemController: NSObject, ObservableObject, NSPopoverDelegate 
         let updateItem = NSMenuItem(title: "檢查 GitHub 更新…", action: #selector(menuCheckUpdates), keyEquivalent: "u")
         updateItem.target = self
         menu.addItem(updateItem)
+
+        let ballItem = NSMenuItem(
+            title: settings.floatingBallEnabled ? "關閉懸浮球" : "顯示懸浮球",
+            action: #selector(menuToggleFloatingBall),
+            keyEquivalent: "f"
+        )
+        ballItem.target = self
+        menu.addItem(ballItem)
 
         let settingsItem = NSMenuItem(title: "設定…", action: #selector(menuSettings), keyEquivalent: ",")
         settingsItem.target = self
@@ -172,6 +191,10 @@ final class StatusItemController: NSObject, ObservableObject, NSPopoverDelegate 
 
     @objc private func menuRefresh() {
         Task { await store.refresh(manual: true) }
+    }
+
+    @objc private func menuToggleFloatingBall() {
+        settings.floatingBallEnabled.toggle()
     }
 
     /// Opens the standalone main window on `page` and dismisses the popover.

@@ -299,7 +299,19 @@ struct AntigravityAuthStore: Sendable {
     }
 
     func load() -> Token? {
-        guard var text = credentials.keychain(service: "gemini", account: "antigravity") else { return nil }
+        if let text = credentials.keychain(service: "gemini", account: "antigravity"),
+           let token = Self.parseToken(from: text) {
+            return token
+        }
+        if let data = credentials.file("~/.gemini/jetski-standalone-oauth-token"),
+           let token = Self.parseToken(from: String(decoding: data, as: UTF8.self)) {
+            return token
+        }
+        return nil
+    }
+
+    static func parseToken(from rawText: String) -> Token? {
+        var text = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
         let prefix = "go-keyring-base64:"
         if text.hasPrefix(prefix) {
             guard let d = Data(base64Encoded: String(text.dropFirst(prefix.count))) else { return nil }
@@ -315,32 +327,87 @@ struct AntigravityAuthStore: Sendable {
         return token.access == nil && token.refresh == nil ? nil : token
     }
 
-    /// Reads the public installed-app OAuth client ID & secret from the locally installed `agy` binary at runtime,
-    /// so zero secrets or client IDs are ever stored in this repository.
-    static let localOAuthClient: (id: String, secret: String)? = {
+    /// Reads the public installed-app OAuth client ID & secret pairs from locally installed Antigravity / `agy`
+    /// binaries at runtime, so zero secrets or client IDs are ever stored in this repository.
+    /// Modern `language_server` binaries may contain multiple `GOCSPX-` literals, so all candidate pairs are returned.
+    static let localOAuthClients: [(id: String, secret: String)] = {
         let candidates = [
+            "/Applications/Antigravity.app/Contents/Resources/bin/language_server",
+            "/Applications/Antigravity.app/Contents/Resources/app/extensions/antigravity/bin/language_server_macos_arm",
+            "/Applications/Antigravity.app/Contents/Resources/app/extensions/antigravity/bin/language_server_macos_x64",
+            "/Applications/Antigravity IDE.app/Contents/Resources/app/extensions/antigravity/bin/language_server_macos_arm",
+            "/Applications/Antigravity IDE.app/Contents/Resources/app/extensions/antigravity/bin/language_server_macos_x64",
             "~/.local/bin/agy",
             "/opt/homebrew/bin/agy",
             "/usr/local/bin/agy",
-            "/Applications/Antigravity.app/Contents/Resources/app/extensions/antigravity/bin/language_server_macos_arm",
         ]
+        var pairs: [(id: String, secret: String)] = []
+        var seen = Set<String>()
+        for path in candidates {
+            let expanded = (path as NSString).expandingTildeInPath
+            guard let data = try? Data(contentsOf: URL(fileURLWithPath: expanded), options: .alwaysMapped) else { continue }
+            for pair in extractOAuthClients(from: data) {
+                let key = pair.id + "|" + pair.secret
+                if seen.insert(key).inserted {
+                    pairs.append(pair)
+                }
+            }
+        }
+        return pairs
+    }()
+
+    static func extractOAuthClients(from data: Data) -> [(id: String, secret: String)] {
         let idPrefix = Data("1071006060591-".utf8)
         let idSuffix = Data(".apps.googleusercontent.com".utf8)
         let secretPrefix = Data("GOCSPX-".utf8)
-        for path in candidates {
-            let expanded = (path as NSString).expandingTildeInPath
-            guard let data = try? Data(contentsOf: URL(fileURLWithPath: expanded), options: .alwaysMapped),
-                  let idStart = data.range(of: idPrefix)?.lowerBound,
-                  let idEnd = data.range(of: idSuffix, in: idStart..<min(data.endIndex, idStart + 120))?.upperBound,
-                  let secStart = data.range(of: secretPrefix)?.lowerBound
-            else { continue }
-            let secEnd = min(data.endIndex, secStart + 35)
-            let idStr = String(decoding: data[idStart..<idEnd], as: UTF8.self)
-            let secStr = String(decoding: data[secStart..<secEnd], as: UTF8.self)
-            return (idStr, secStr)
+
+        func isTokenChar(_ b: UInt8) -> Bool {
+            (b >= 0x30 && b <= 0x39) || // 0-9
+            (b >= 0x41 && b <= 0x5A) || // A-Z
+            (b >= 0x61 && b <= 0x7A) || // a-z
+            b == 0x2D || b == 0x5F      // - _
         }
-        return nil
-    }()
+
+        var ids: [String] = []
+        var seenIDs = Set<String>()
+        var cursor = data.startIndex
+        while let start = data.range(of: idPrefix, in: cursor..<data.endIndex)?.lowerBound {
+            cursor = data.index(after: start)
+            let searchEnd = min(data.endIndex, start + 120)
+            guard let end = data.range(of: idSuffix, in: start..<searchEnd)?.upperBound else { continue }
+            let midStart = start + idPrefix.count
+            let midEnd = end - idSuffix.count
+            guard midEnd > midStart, data[midStart..<midEnd].allSatisfy(isTokenChar) else { continue }
+            let idStr = String(decoding: data[start..<end], as: UTF8.self)
+            if seenIDs.insert(idStr).inserted {
+                ids.append(idStr)
+            }
+            cursor = end
+        }
+
+        var secrets: [String] = []
+        var seenSecrets = Set<String>()
+        cursor = data.startIndex
+        while let start = data.range(of: secretPrefix, in: cursor..<data.endIndex)?.lowerBound {
+            cursor = data.index(after: start)
+            guard start + 35 <= data.endIndex else { break }
+            let slice = data[start..<(start + 35)]
+            guard slice.allSatisfy(isTokenChar) else { continue }
+            let secStr = String(decoding: slice, as: UTF8.self)
+            if seenSecrets.insert(secStr).inserted {
+                secrets.append(secStr)
+            }
+            cursor = start + 35
+        }
+
+        var out: [(id: String, secret: String)] = []
+        for id in ids {
+            for sec in secrets {
+                out.append((id, sec))
+            }
+        }
+        return out
+    }
 }
 
 /// Thread-safe in-memory cache for Antigravity's refreshed access token and plan tier so we don't refresh on every cycle.
@@ -350,6 +417,7 @@ private final class InMemoryTokenCache: @unchecked Sendable {
     private var access: String?
     private var expiry: Date?
     private var planName: String?
+    private var workingClient: (id: String, secret: String)?
 
     func get() -> String? {
         lock.lock()
@@ -375,6 +443,18 @@ private final class InMemoryTokenCache: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         planName = plan
+    }
+
+    func getWorkingClient() -> (id: String, secret: String)? {
+        lock.lock()
+        defer { lock.unlock() }
+        return workingClient
+    }
+
+    func setWorkingClient(_ client: (id: String, secret: String)) {
+        lock.lock()
+        defer { lock.unlock() }
+        workingClient = client
     }
 }
 
@@ -445,7 +525,7 @@ enum AntigravityMapper {
                             resetsAt: Parse.date(weekly["resetTime"])
                         )
                         if let existing = argonLine {
-                            if existing.usedPercent == 0, candidate.usedPercent > 0 {
+                            if candidate.usedPercent > existing.usedPercent {
                                 argonLine = candidate
                             }
                         } else {
@@ -470,7 +550,7 @@ enum AntigravityMapper {
                         resetsAt: Parse.date(bucket["resetTime"])
                     )
                     if let existing = found[id] {
-                        if existing.usedPercent == 0, candidate.usedPercent > 0 {
+                        if candidate.usedPercent > existing.usedPercent {
                             found[id] = candidate
                         }
                     } else {
@@ -581,27 +661,42 @@ struct AntigravityRuntime: ProviderRuntime {
         return try await http.send(req)
     }
 
-    private func refreshAccessToken(_ refreshToken: String) async throws -> String {
-        guard let client = AntigravityAuthStore.localOAuthClient else {
+    private func refreshAccessToken(_ refreshToken: String,
+                                    clients: [(id: String, secret: String)] = AntigravityAuthStore.localOAuthClients) async throws -> String {
+        var ordered: [(id: String, secret: String)] = []
+        if let cached = InMemoryTokenCache.shared.getWorkingClient() {
+            ordered.append(cached)
+        }
+        for c in clients where !ordered.contains(where: { $0.id == c.id && $0.secret == c.secret }) {
+            ordered.append(c)
+        }
+        guard !ordered.isEmpty else {
             throw ProviderError.unauthorized("Token 已過期，請開啟 Antigravity 或執行 agy")
         }
-        var req = URLRequest(url: URL(string: "https://oauth2.googleapis.com/token")!)
-        req.httpMethod = "POST"
-        req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        var comps = URLComponents()
-        comps.queryItems = [
-            .init(name: "client_id", value: client.id),
-            .init(name: "client_secret", value: client.secret),
-            .init(name: "refresh_token", value: refreshToken),
-            .init(name: "grant_type", value: "refresh_token"),
-        ]
-        req.httpBody = comps.percentEncodedQuery?.data(using: .utf8)
-        let r = try await http.send(req)
-        guard r.status == 200, let access = r.json["access_token"] as? String else {
-            throw ProviderError.unauthorized("Antigravity 登入已過期，請重新登入")
+        for client in ordered {
+            var req = URLRequest(url: URL(string: "https://oauth2.googleapis.com/token")!)
+            req.httpMethod = "POST"
+            req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+            var comps = URLComponents()
+            comps.queryItems = [
+                .init(name: "client_id", value: client.id),
+                .init(name: "client_secret", value: client.secret),
+                .init(name: "refresh_token", value: refreshToken),
+                .init(name: "grant_type", value: "refresh_token"),
+            ]
+            req.httpBody = comps.percentEncodedQuery?.data(using: .utf8)
+            let r = try await http.send(req)
+            if r.status == 200, let access = r.json["access_token"] as? String {
+                let expiresIn = Parse.number(r.json["expires_in"]) ?? 3500
+                InMemoryTokenCache.shared.set(access, expiresIn: expiresIn)
+                InMemoryTokenCache.shared.setWorkingClient(client)
+                return access
+            }
+            if r.status == 401, (r.json["error"] as? String) == "invalid_client" {
+                continue
+            }
+            break
         }
-        let expiresIn = Parse.number(r.json["expires_in"]) ?? 3500
-        InMemoryTokenCache.shared.set(access, expiresIn: expiresIn)
-        return access
+        throw ProviderError.unauthorized("Antigravity 登入已過期，請重新登入")
     }
 }

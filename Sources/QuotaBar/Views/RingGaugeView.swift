@@ -235,16 +235,22 @@ struct DualRingGauge: View {
         .frame(width: size, height: size)
         .animation(.spring(response: 0.55, dampingFraction: 0.82), value: sessionUsed)
         .animation(.spring(response: 0.55, dampingFraction: 0.82), value: weeklyUsed)
+        .animation(.spring(response: 0.45, dampingFraction: 0.82), value: showRemaining)
     }
 
     private var hasSplitPools: Bool {
         lines.contains { $0.pool == "gemini" } && lines.contains { $0.pool == "3p" }
     }
 
+    private func displayedFraction(used: Double, minFloor: Double) -> Double {
+        let value = showRemaining ? max(0, 100 - used) : used
+        return min(max(value / 100, minFloor), 1)
+    }
+
     @ViewBuilder
     private func singleRing(used: Double, inset: CGFloat) -> some View {
         let color = Theme.ringColor(for: provider, usedPercent: used)
-        let progress = min(max(used / 100, 0.005), 1)
+        let progress = displayedFraction(used: used, minFloor: 0.005)
         ZStack {
             Circle()
                 .inset(by: inset + lineWidth / 2)
@@ -272,7 +278,7 @@ struct DualRingGauge: View {
                 .rotationEffect(.degrees(-90))
             Circle()
                 .inset(by: inset + lineWidth / 2)
-                .trim(from: 0.03, to: 0.03 + 0.44 * min(max(geminiUsed / 100, 0.01), 1))
+                .trim(from: 0.03, to: 0.03 + 0.44 * displayedFraction(used: geminiUsed, minFloor: 0.01))
                 .stroke(c1, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                 .rotationEffect(.degrees(-90))
 
@@ -283,7 +289,7 @@ struct DualRingGauge: View {
                 .rotationEffect(.degrees(-90))
             Circle()
                 .inset(by: inset + lineWidth / 2)
-                .trim(from: 0.53, to: 0.53 + 0.44 * min(max(thirdPartyUsed / 100, 0.01), 1))
+                .trim(from: 0.53, to: 0.53 + 0.44 * displayedFraction(used: thirdPartyUsed, minFloor: 0.01))
                 .stroke(c2, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                 .rotationEffect(.degrees(-90))
         }

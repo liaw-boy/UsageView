@@ -109,10 +109,12 @@ public actor ConversationManager {
     public static let shared = ConversationManager()
 
     private let codexHomeOverride: URL?
+    private let geminiRootOverride: URL?
 
-    /// `codexHome` is for tests; by default `$CODEX_HOME` (absolute paths only) or `~/.codex` is used.
-    public init(codexHome: URL? = nil) {
+    /// `codexHome` and `geminiRoot` are for tests; by default `$CODEX_HOME` (or `~/.codex`) and `~/.gemini` are used.
+    public init(codexHome: URL? = nil, geminiRoot: URL? = nil) {
         codexHomeOverride = codexHome
+        geminiRootOverride = geminiRoot
     }
 
     /// Sessions the one-tap cleanup may move to the Trash: not updated for `minAgeDays` and at least `minSizeMB` big.
@@ -417,8 +419,9 @@ public actor ConversationManager {
             } else if prompt == nil, type == "response_item", payload["role"] as? String == "user",
                       let parts = payload["content"] as? [[String: Any]] {
                 let text = parts.compactMap { $0["text"] as? String }.joined(separator: " ")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
                 // Skip injected context blocks (environment / instructions), keep real user text.
-                if !text.hasPrefix("<") { prompt = Self.cleanPrompt(text) }
+                if !text.isEmpty, !text.hasPrefix("<") { prompt = Self.cleanPrompt(text) }
             }
             if cwd != nil, createdAt != nil, prompt != nil { break }
         }
@@ -432,109 +435,132 @@ public actor ConversationManager {
 
     // MARK: - Antigravity Scanner
 
-    private func scanAntigravitySessions() -> [ConversationSession] {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        let convDir = home.appendingPathComponent(".gemini/antigravity-cli/conversations")
-        let brainBase = home.appendingPathComponent(".gemini/antigravity-cli/brain")
+    private func geminiRootURL() -> URL {
+        geminiRootOverride ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".gemini", isDirectory: true)
+    }
 
-        guard let files = try? FileManager.default.contentsOfDirectory(at: convDir, includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey]) else {
+    func scanAntigravitySessions() -> [ConversationSession] {
+        let fm = FileManager.default
+        let geminiDir = geminiRootURL()
+        guard let entries = try? fm.contentsOfDirectory(atPath: geminiDir.path) else {
             return []
         }
 
+        // Scan all ~/.gemini/antigravity* folders (e.g. antigravity, antigravity-cli, antigravity-ide), skipping backups.
+        let agyRoots = entries
+            .filter { $0.hasPrefix("antigravity") && !$0.lowercased().contains("backup") }
+            .sorted()
+            .map { geminiDir.appendingPathComponent($0, isDirectory: true) }
+
         var results: [ConversationSession] = []
+        var seenCanonical = Set<String>()
 
-        for file in files where file.pathExtension == "db" {
-            let cid = file.deletingPathExtension().lastPathComponent
-            let dbSize = (try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-            var latestMtime = (try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? Date()
+        for root in agyRoots {
+            let convDir = root.appendingPathComponent("conversations", isDirectory: true)
+            let brainBase = root.appendingPathComponent("brain", isDirectory: true)
 
-            var extraSize: Int64 = 0
-
-            // Check db-wal
-            let walURL = file.deletingPathExtension().appendingPathExtension("db-wal")
-            if let walVals = try? walURL.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]) {
-                extraSize += Int64(walVals.fileSize ?? 0)
-                if let m = walVals.contentModificationDate, m > latestMtime { latestMtime = m }
+            guard let files = try? fm.contentsOfDirectory(at: convDir, includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey]) else {
+                continue
             }
 
-            // Check brain dir: ~/.gemini/antigravity-cli/brain/<cid>
-            let brainDir = brainBase.appendingPathComponent(cid)
-            var brainDirExists = false
-            if (try? brainDir.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
-                brainDirExists = true
-                if let enumerator = FileManager.default.enumerator(at: brainDir, includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey]) {
-                    for case let subFile as URL in enumerator {
-                        guard subFile.lastPathComponent != ".DS_Store" else { continue }
-                        if let vals = try? subFile.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]) {
-                            extraSize += Int64(vals.fileSize ?? 0)
-                            if let m = vals.contentModificationDate, m > latestMtime {
-                                latestMtime = m
+            for file in files where file.pathExtension == "db" {
+                let canon = file.resolvingSymlinksInPath().path
+                guard seenCanonical.insert(canon).inserted else { continue }
+
+                let cid = file.deletingPathExtension().lastPathComponent
+                let dbSize = (try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+                var latestMtime = (try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? Date()
+
+                var extraSize: Int64 = 0
+
+                // Check db-wal and db-shm
+                for suffix in ["-wal", "-shm"] {
+                    let sideURL = URL(fileURLWithPath: file.path + suffix)
+                    if let vals = try? sideURL.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]) {
+                        extraSize += Int64(vals.fileSize ?? 0)
+                        if let m = vals.contentModificationDate, m > latestMtime { latestMtime = m }
+                    }
+                }
+
+                // Check brain dir: <root>/brain/<cid>
+                let brainDir = brainBase.appendingPathComponent(cid)
+                var brainDirExists = false
+                if (try? brainDir.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+                    brainDirExists = true
+                    if let enumerator = fm.enumerator(at: brainDir, includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey]) {
+                        for case let subFile as URL in enumerator {
+                            guard subFile.lastPathComponent != ".DS_Store" else { continue }
+                            if let vals = try? subFile.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]) {
+                                extraSize += Int64(vals.fileSize ?? 0)
+                                if let m = vals.contentModificationDate, m > latestMtime {
+                                    latestMtime = m
+                                }
                             }
                         }
                     }
                 }
-            }
 
-            let totalSize = Int64(dbSize) + extraSize
+                let totalSize = Int64(dbSize) + extraSize
 
-            // Read first prompt and true last timestamp from transcript
-            var prompt = ""
-            var trueLastDate: Date? = nil
-            // Antigravity transcripts carry no project path, so leave it empty.
-            let projectPath = ""
-            let transcriptURL = brainDir.appendingPathComponent(".system_generated/logs/transcript.jsonl")
+                // Read first prompt and true last timestamp from transcript
+                var prompt = ""
+                var trueLastDate: Date? = nil
+                // Antigravity transcripts carry no project path, so leave it empty.
+                let projectPath = ""
+                let transcriptURL = brainDir.appendingPathComponent(".system_generated/logs/transcript.jsonl")
 
-            if let tData = try? Data(contentsOf: transcriptURL) {
-                let lines = tData.split(separator: UInt8(ascii: "\n"))
-                for line in lines.reversed() {
-                    guard let obj = (try? JSONSerialization.jsonObject(with: Data(line))) as? [String: Any],
-                          let ca = obj["created_at"] as? String,
-                          let d = Parse.date(ca)
-                    else { continue }
-                    trueLastDate = d
-                    break
-                }
-                for line in lines {
-                    guard let obj = (try? JSONSerialization.jsonObject(with: Data(line))) as? [String: Any],
-                          let type = obj["type"] as? String, type == "USER_INPUT",
-                          let content = obj["content"] as? String
-                    else { continue }
-
-                    if content.contains("<USER_REQUEST>") {
-                        let parts = content.components(separatedBy: "<USER_REQUEST>")
-                        if parts.count > 1 {
-                            let sub = parts[1].components(separatedBy: "</USER_REQUEST>").first ?? ""
-                            prompt = sub.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
-                        }
-                    } else {
-                        prompt = content.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+                if let tData = try? Data(contentsOf: transcriptURL) {
+                    let lines = tData.split(separator: UInt8(ascii: "\n"))
+                    for line in lines.reversed() {
+                        guard let obj = (try? JSONSerialization.jsonObject(with: Data(line))) as? [String: Any],
+                              let ca = obj["created_at"] as? String,
+                              let d = Parse.date(ca)
+                        else { continue }
+                        trueLastDate = d
+                        break
                     }
-                    break
+                    for line in lines {
+                        guard let obj = (try? JSONSerialization.jsonObject(with: Data(line))) as? [String: Any],
+                              let type = obj["type"] as? String, type == "USER_INPUT",
+                              let content = obj["content"] as? String
+                        else { continue }
+
+                        if content.contains("<USER_REQUEST>") {
+                            let parts = content.components(separatedBy: "<USER_REQUEST>")
+                            if parts.count > 1 {
+                                let sub = parts[1].components(separatedBy: "</USER_REQUEST>").first ?? ""
+                                prompt = sub.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+                            }
+                        } else {
+                            prompt = content.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+                        }
+                        break
+                    }
                 }
+
+                if prompt.isEmpty {
+                    prompt = "對話 \(cid.prefix(8))"
+                }
+
+                let projName = (projectPath as NSString).lastPathComponent
+                let updatedAt = trueLastDate ?? latestMtime
+
+                results.append(ConversationSession(
+                    id: cid,
+                    provider: .antigravity,
+                    projectName: projName.isEmpty ? "Antigravity" : projName,
+                    projectPath: projectPath,
+                    prompt: prompt,
+                    createdAt: updatedAt,
+                    updatedAt: updatedAt,
+                    totalSizeBytes: totalSize,
+                    mainFilePath: file.path,
+                    subagentDirPath: brainDirExists ? brainDir.path : nil,
+                    tokenCount: 0,
+                    costUSD: 0.0,
+                    messageCount: 0
+                ))
             }
-
-            if prompt.isEmpty {
-                prompt = "對話 \(cid.prefix(8))"
-            }
-
-            let projName = (projectPath as NSString).lastPathComponent
-            let updatedAt = trueLastDate ?? latestMtime
-
-            results.append(ConversationSession(
-                id: cid,
-                provider: .antigravity,
-                projectName: projName.isEmpty ? "Antigravity" : projName,
-                projectPath: projectPath,
-                prompt: prompt,
-                createdAt: updatedAt,
-                updatedAt: updatedAt,
-                totalSizeBytes: totalSize,
-                mainFilePath: file.path,
-                subagentDirPath: brainDirExists ? brainDir.path : nil,
-                tokenCount: 0,
-                costUSD: 0.0,
-                messageCount: 0
-            ))
         }
 
         return results
@@ -581,13 +607,14 @@ public actor ConversationManager {
 
         // 3. Antigravity WAL/SHM files
         if session.provider == .antigravity {
-            let walURL = URL(fileURLWithPath: session.mainFilePath + "-wal")
-            let shmURL = URL(fileURLWithPath: session.mainFilePath + "-shm")
-            if fm.fileExists(atPath: walURL.path) {
-                try? fm.trashItem(at: walURL, resultingItemURL: nil)
-            }
-            if fm.fileExists(atPath: shmURL.path) {
-                try? fm.trashItem(at: shmURL, resultingItemURL: nil)
+            for suffix in ["-wal", "-shm"] {
+                let sideURL = URL(fileURLWithPath: session.mainFilePath + suffix)
+                if fm.fileExists(atPath: sideURL.path) {
+                    let size = (try? sideURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+                    if (try? fm.trashItem(at: sideURL, resultingItemURL: nil)) != nil {
+                        freed += Int64(size)
+                    }
+                }
             }
         }
 
@@ -596,7 +623,7 @@ public actor ConversationManager {
 
     private func isTrashable(_ path: String) -> Bool {
         let home = FileManager.default.homeDirectoryForCurrentUser
-        let roots = [home.appendingPathComponent(".claude"), home.appendingPathComponent(".gemini"), codexHomeURL()]
+        let roots = [home.appendingPathComponent(".claude"), geminiRootURL(), codexHomeURL()]
             .map { $0.resolvingSymlinksInPath().standardizedFileURL.path + "/" }
         let url = URL(fileURLWithPath: path)
         if (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true { return false }
@@ -770,6 +797,56 @@ public actor ConversationManager {
         return result
     }
 
+    private func parseCodexMessages(lines: [Data]) -> [ConversationMessage] {
+        var result: [ConversationMessage] = []
+        let responseMarker = Data(#""response_item""#.utf8)
+        let eventMarker = Data(#""event_msg""#.utf8)
+
+        for line in lines {
+            guard line.range(of: responseMarker) != nil || line.range(of: eventMarker) != nil else { continue }
+            guard let obj = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any],
+                  let type = obj["type"] as? String,
+                  let payload = obj["payload"] as? [String: Any]
+            else { continue }
+            let ts = (obj["timestamp"] as? String).flatMap(Parse.date)
+
+            if type == "event_msg" {
+                let pType = payload["type"] as? String
+                if pType == "user_message", let raw = payload["message"] as? String {
+                    let clean = cleanMessageText(raw)
+                    if !isNoiseMessage(text: clean, isUser: true),
+                       result.last?.text != clean || result.last?.role != "User" {
+                        result.append(ConversationMessage(role: "User", text: clean, timestamp: ts))
+                    }
+                } else if pType == "agent_message", let raw = payload["message"] as? String {
+                    let clean = cleanMessageText(raw)
+                    if !isNoiseMessage(text: clean, isUser: false),
+                       result.last?.text != clean || result.last?.role != "Codex" {
+                        result.append(ConversationMessage(role: "Codex", text: clean, timestamp: ts))
+                    }
+                }
+            } else if type == "response_item",
+                      let role = payload["role"] as? String,
+                      let parts = payload["content"] as? [[String: Any]] {
+                let raw = parts.compactMap { $0["text"] as? String }.joined(separator: "\n")
+                let clean = cleanMessageText(raw)
+                if role == "user" {
+                    // Skip injected environment / instructions blocks starting with XML tags.
+                    if clean.hasPrefix("<") || isNoiseMessage(text: clean, isUser: true) { continue }
+                    if result.last?.text != clean || result.last?.role != "User" {
+                        result.append(ConversationMessage(role: "User", text: clean, timestamp: ts))
+                    }
+                } else if role == "assistant" {
+                    if !isNoiseMessage(text: clean, isUser: false),
+                       result.last?.text != clean || result.last?.role != "Codex" {
+                        result.append(ConversationMessage(role: "Codex", text: clean, timestamp: ts))
+                    }
+                }
+            }
+        }
+        return result
+    }
+
     /// Loads the latest / most recent conversation messages (chronological order, tail of the conversation).
     public func loadPreviewMessages(session: ConversationSession, limit: Int = 40) -> [ConversationMessage] {
         if session.provider == .claude {
@@ -780,6 +857,17 @@ public actor ConversationManager {
                 let largerLines = readTrailingLines(url: url, maxBytes: 16 * 1024 * 1024)
                 if largerLines.count > lines.count {
                     parsed = parseClaudeMessages(lines: largerLines)
+                }
+            }
+            return Array(parsed.suffix(limit))
+        } else if session.provider == .codex {
+            let url = URL(fileURLWithPath: session.mainFilePath)
+            let lines = readTrailingLines(url: url, maxBytes: 4 * 1024 * 1024)
+            var parsed = parseCodexMessages(lines: lines)
+            if parsed.count < 8 {
+                let largerLines = readTrailingLines(url: url, maxBytes: 16 * 1024 * 1024)
+                if largerLines.count > lines.count {
+                    parsed = parseCodexMessages(lines: largerLines)
                 }
             }
             return Array(parsed.suffix(limit))
@@ -808,6 +896,11 @@ public actor ConversationManager {
             guard let data = try? Data(contentsOf: url) else { return [] }
             let lines = data.split(separator: UInt8(ascii: "\n")).map { Data($0) }
             return parseClaudeMessages(lines: lines)
+        } else if session.provider == .codex {
+            let url = URL(fileURLWithPath: session.mainFilePath)
+            guard let data = try? Data(contentsOf: url) else { return [] }
+            let lines = data.split(separator: UInt8(ascii: "\n")).map { Data($0) }
+            return parseCodexMessages(lines: lines)
         } else if session.provider == .antigravity {
             if let brain = session.subagentDirPath {
                 let tURL = URL(fileURLWithPath: brain).appendingPathComponent(".system_generated/logs/transcript.jsonl")
