@@ -929,7 +929,7 @@ public actor ConversationManager {
         """
 
         for m in msgs {
-            let rolePrefix = m.role == "User" ? "### 👤 User" : "### 🤖 \(m.role)"
+            let rolePrefix = "### \(m.role)"
             let tsStr = m.timestamp.map { " (\($0))" } ?? ""
             md += "\(rolePrefix)\(tsStr)\n\n\(m.text)\n\n---\n\n"
         }

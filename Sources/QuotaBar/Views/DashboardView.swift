@@ -891,11 +891,21 @@ private struct PaceChip: View {
 
     private var label: String {
         switch pace {
-        case .useFaster: "⚡ 快一點用"
-        case .comfortable: "👌 放心用"
-        case .slowDown: "🐢 少用一點"
-        case .conserve: "⚠️ 省著點用"
-        case .almostGone: "🔥 要沒了！"
+        case .useFaster: "快一點用"
+        case .comfortable: "放心用"
+        case .slowDown: "少用一點"
+        case .conserve: "省著點用"
+        case .almostGone: "要沒了！"
+        }
+    }
+
+    private var icon: String {
+        switch pace {
+        case .useFaster: "bolt.fill"
+        case .comfortable: "hand.thumbsup.fill"
+        case .slowDown: "tortoise.fill"
+        case .conserve: "exclamationmark.triangle.fill"
+        case .almostGone: "flame.fill"
         }
     }
 
@@ -910,7 +920,10 @@ private struct PaceChip: View {
     }
 
     var body: some View {
-        Text(label)
+        HStack(spacing: 3) {
+            Image(systemName: icon).font(.system(size: 8.5, weight: .bold))
+            Text(label)
+        }
             .font(.system(size: 10, weight: .bold, design: .rounded))
             .lineLimit(1)
             .fixedSize(horizontal: true, vertical: false)

@@ -92,7 +92,7 @@ struct ToolManagerView: View {
             lines.append("無法從這裡移除。")
         }
         if !item.sharedWith.isEmpty {
-            lines.append("⚠︎ 這個項目與 \(item.sharedWith.map(\.displayName).joined(separator: "、")) 共用，移除後那邊也會消失。")
+            lines.append("注意：這個項目與 \(item.sharedWith.map(\.displayName).joined(separator: "、")) 共用，移除後那邊也會消失。")
         }
         // OpenCode watches its config files and reloads automatically; the others need a restart.
         lines.append(item.tool == .opencode
@@ -208,7 +208,7 @@ struct ToolManagerView: View {
                         ForEach(group.items) { row($0) }
                     }
                     ForEach(inventory.warnings, id: \.self) { w in
-                        Text("⚠︎ \(w)").font(.system(size: 11)).foregroundStyle(.orange)
+                        Label(w, systemImage: "exclamationmark.triangle.fill").font(.system(size: 11)).foregroundStyle(.orange)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }

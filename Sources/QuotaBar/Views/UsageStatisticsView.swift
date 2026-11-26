@@ -615,12 +615,12 @@ public struct UsageStatisticsView: View {
         let stats = currentStats
         let title = selectedFilter.title
         var md = """
-        ### 📊 UsageView 額度使用統計表 (\(title))
+        ### UsageView 額度使用統計表 (\(title))
         | 統計期間 | Token 用量 | 估算花費 (USD) | 換算台幣 (約值) |
         | :--- | :--- | :--- | :--- |
-        | ☀️ **當日 (Today)** | \(formatTokens(stats.todayTok)) tok (\(stats.todayTok)) | $\(String(format: "%.2f", stats.todayCost)) | NT$\(Int((stats.todayCost * 32.2).rounded())) |
-        | 📅 **本週 (7D)** | \(formatTokens(stats.weekTok)) tok (\(stats.weekTok)) | $\(String(format: "%.2f", stats.weekCost)) | NT$\(Int((stats.weekCost * 32.2).rounded())) |
-        | 🗓️ **本月 (30D)** | \(formatTokens(stats.monthTok)) tok (\(stats.monthTok)) | $\(String(format: "%.2f", stats.monthCost)) | NT$\(Int((stats.monthCost * 32.2).rounded())) |
+        | **當日 (Today)** | \(formatTokens(stats.todayTok)) tok (\(stats.todayTok)) | $\(String(format: "%.2f", stats.todayCost)) | NT$\(Int((stats.todayCost * 32.2).rounded())) |
+        | **本週 (7D)** | \(formatTokens(stats.weekTok)) tok (\(stats.weekTok)) | $\(String(format: "%.2f", stats.weekCost)) | NT$\(Int((stats.weekCost * 32.2).rounded())) |
+        | **本月 (30D)** | \(formatTokens(stats.monthTok)) tok (\(stats.monthTok)) | $\(String(format: "%.2f", stats.monthCost)) | NT$\(Int((stats.monthCost * 32.2).rounded())) |
 
         """
 

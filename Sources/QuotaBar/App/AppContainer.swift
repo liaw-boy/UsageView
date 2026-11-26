@@ -151,7 +151,7 @@ final class QuotaNotifier {
                             fired.insert(refillKey)
                             let avail = max(0, min(100, Int((100 - line.usedPercent).rounded())))
                             send(
-                                title: "🎉 \(id.displayName) 額度已滿血復活！",
+                                title: "\(id.displayName) 額度已滿血復活！",
                                 body: "\(line.label) 已重置完成（目前 \(avail)% 可用），可以繼續開工了！"
                             )
                         }
@@ -186,7 +186,7 @@ final class QuotaNotifier {
                 guard !fired.contains(refillKey) else { continue }
                 fired.insert(refillKey)
                 send(
-                    title: "🎉 \(id.displayName) 額度已滿血復活！",
+                    title: "\(id.displayName) 額度已滿血復活！",
                     body: "\(line.label) 重置時間已到（100% 可用），可以繼續開工了！"
                 )
             }
