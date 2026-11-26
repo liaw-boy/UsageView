@@ -80,6 +80,8 @@ public struct HTTPClient: Sendable {
 public enum ProviderError: LocalizedError, Equatable {
     case notLoggedIn(String)
     case unauthorized(String)
+    /// The login works but the account has no usage data to show (no subscription, token without `user:profile`).
+    case notAvailable(String)
     case rateLimited(retryAfter: TimeInterval?)
     case http(Int)
     case parse
@@ -87,7 +89,7 @@ public enum ProviderError: LocalizedError, Equatable {
 
     public var errorDescription: String? {
         switch self {
-        case .notLoggedIn(let m), .unauthorized(let m): m
+        case .notLoggedIn(let m), .unauthorized(let m), .notAvailable(let m): m
         case .rateLimited: "請求太頻繁，稍後自動重試"
         case .http(let code): "伺服器回應 HTTP \(code)"
         case .parse: "無法解析回應"

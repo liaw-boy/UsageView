@@ -136,7 +136,6 @@ struct DashboardView: View {
     }
 
     private var updatedSubtitle: String {
-        if let notice = store.refreshNotice { return notice }
         guard let date = store.lastUpdated else { return "唯讀查詢 · \(syncInterval)" }
         let secs = max(0, Int(Date().timeIntervalSince(date)))
         if secs < 30 { return "剛剛更新 · \(syncInterval)" }
@@ -394,7 +393,7 @@ struct ProviderCardView: View {
                         .background(Color.white.opacity(0.07), in: Capsule())
                         .help(isOffline
                               ? "目前離線，顯示上次成功同步的快取資料，恢復連線後會自動更新"
-                              : "官方 API 暫時冷卻中，目前顯示上次成功同步的快取資料（\(state.error ?? "")）")
+                              : "最近一次更新失敗，目前顯示上次成功同步的快取資料（\(state.error ?? "")）")
                     }
 
                     Spacer(minLength: 2)

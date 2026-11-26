@@ -98,16 +98,17 @@ final class RetryBackoffTests: XCTestCase {
     }
 
     @MainActor
-    func testManualRefreshRespectsRateLimitBackoff() async {
+    func testManualRefreshBypassesARateLimitPause() async {
         let attempts = Attempts()
         let store = makeStore(attempts, error: .rateLimited(retryAfter: 600))
 
-        await store.refresh(manual: true)
-        await store.refresh(manual: true)
-        await store.refresh(manual: true)
-
+        await store.refresh(manual: false)
+        await store.refresh(manual: false)
         XCTAssertEqual(attempts.count, 1)
         XCTAssertNotNil(store.backoffUntil(.claude))
+
+        await store.refresh(manual: true)
+        XCTAssertEqual(attempts.count, 2)
     }
 
     @MainActor
@@ -126,65 +127,94 @@ final class RetryBackoffTests: XCTestCase {
     }
 
     @MainActor
-    func testRateLimitCooldownSurvivesARestart() async {
+    func testRateLimitPauseDoesNotSurviveARestart() async {
         let cache = tempCache()
         let first = Attempts()
         await storeSharing(cache: cache, first, error: .rateLimited(retryAfter: 600)).refresh(manual: false)
         XCTAssertEqual(first.count, 1)
 
         let second = Attempts()
-        let restarted = storeSharing(cache: cache, second, error: .rateLimited(retryAfter: 600))
-        await restarted.refresh(manual: false)
-        await restarted.refresh(manual: true)
-
-        XCTAssertEqual(second.count, 0)
-        XCTAssertTrue(restarted.states[.claude]?.error?.hasPrefix("請求太頻繁，伺服器要求等到 ") == true)
+        await storeSharing(cache: cache, second, error: .rateLimited(retryAfter: 600)).refresh(manual: false)
+        XCTAssertEqual(second.count, 1)
     }
 
     @MainActor
-    func testExpiredCooldownIsNotRestored() async throws {
+    func testLegacyPersistedCooldownIsIgnoredAndRemoved() async throws {
         let cache = tempCache()
-        let expired = ["claude": ["until": Date().addingTimeInterval(-60).timeIntervalSinceReferenceDate, "step": 2, "serverRequested": false] as [String: Any]]
-        try JSONSerialization.data(withJSONObject: expired)
-            .write(to: cache.deletingPathExtension().appendingPathExtension("cooldowns.json"))
+        let legacy = cache.deletingPathExtension().appendingPathExtension("cooldowns.json")
+        let future = ["claude": ["until": Date().addingTimeInterval(3600).timeIntervalSinceReferenceDate, "step": 4, "serverRequested": true] as [String: Any]]
+        try JSONSerialization.data(withJSONObject: future).write(to: legacy)
 
         let attempts = Attempts()
         await storeSharing(cache: cache, attempts, error: .timeout).refresh(manual: false)
 
         XCTAssertEqual(attempts.count, 1)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: legacy.path))
     }
 
     @MainActor
-    func testManualRefreshDuringCooldownExplainsWhy() async {
+    func testRateLimitWithoutUsableRetryAfterWaitsFiveMinutes() async throws {
+        for retryAfter in [nil, 0] as [TimeInterval?] {
+            let store = makeStore(Attempts(), error: .rateLimited(retryAfter: retryAfter))
+            let before = Date()
+            await store.refresh(manual: true)
+
+            let until = try XCTUnwrap(store.backoffUntil(.claude))
+            XCTAssertEqual(until.timeIntervalSince(before), 300, accuracy: 5)
+            let message = store.states[.claude]?.error ?? ""
+            XCTAssertNotNil(message.range(of: #"^官方暫時限流，約 \d{2}:\d{2} 自動重試$"#, options: .regularExpression), message)
+        }
+    }
+
+    @MainActor
+    func testWakeDoesNotClearARateLimitPause() async throws {
         let attempts = Attempts()
         let store = makeStore(attempts, error: .rateLimited(retryAfter: 600))
-        XCTAssertNil(store.refreshNotice)
 
         await store.refresh(manual: false)
-        await store.refresh(manual: true)
+        store.systemDidWake(delay: 0.05)
+        try await Task.sleep(for: .milliseconds(400))
 
         XCTAssertEqual(attempts.count, 1)
-        let notice = store.refreshNotice ?? ""
-        XCTAssertNotNil(notice.range(of: #"冷卻中，\d{2}:\d{2} 後才能重試"#, options: .regularExpression), notice)
+        XCTAssertEqual(store.states[.claude]?.isRateLimited, true)
     }
 
     @MainActor
-    func testRateLimitMessageNamesTheRetryTime() async {
-        let store = makeStore(Attempts(), error: .rateLimited(retryAfter: nil))
+    func testAbsurdRetryAfterIsCapped() async throws {
+        for retryAfter in [TimeInterval.infinity, 1e12, -30] {
+            let store = makeStore(Attempts(), error: .rateLimited(retryAfter: retryAfter))
+            let before = Date()
+            await store.refresh(manual: true)
+            let wait = try XCTUnwrap(store.backoffUntil(.claude)).timeIntervalSince(before)
+            XCTAssertTrue(wait > 0 && wait <= 6 * 3600 + 5, "\(retryAfter) -> \(wait)")
+        }
+    }
+
+    @MainActor
+    func testNoUsageDataIsNotRetriedEveryMinute() async throws {
+        let attempts = Attempts()
+        let store = makeStore(attempts, error: .notAvailable("demo"), restoreDelay: 0.05)
+
+        await store.refresh(manual: false)
+        store.networkChanged(online: false)
+        store.networkChanged(online: true)
+        try await Task.sleep(for: .milliseconds(400))
+        XCTAssertEqual(attempts.count, 1)
+        XCTAssertEqual(store.states[.claude]?.isRateLimited, false)
+        XCTAssertEqual(store.states[.claude]?.error, "demo")
 
         await store.refresh(manual: true)
-
-        let message = store.states[.claude]?.error ?? ""
-        XCTAssertNotNil(message.range(of: #"^請求太頻繁，將於 \d{2}:\d{2} 後自動重試$"#, options: .regularExpression), message)
+        XCTAssertEqual(attempts.count, 2)
     }
 
     @MainActor
-    func testServerRequestedWaitIsReportedAsSuch() async {
+    func testServerRetryAfterIsHonoured() async throws {
         let store = makeStore(Attempts(), error: .rateLimited(retryAfter: 7200))
-
+        let before = Date()
         await store.refresh(manual: true)
 
-        XCTAssertTrue(store.states[.claude]?.error?.hasPrefix("請求太頻繁，伺服器要求等到 ") == true)
+        let until = try XCTUnwrap(store.backoffUntil(.claude))
+        XCTAssertEqual(until.timeIntervalSince(before), 7200, accuracy: 5)
     }
 }
 

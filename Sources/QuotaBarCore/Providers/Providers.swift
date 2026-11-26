@@ -50,7 +50,7 @@ struct ClaudeAuthStore: Sendable {
         credentialsInfo()?.accessToken
     }
 
-    func credentialsInfo() -> (accessToken: String, planName: String?)? {
+    func credentialsInfo() -> (accessToken: String, planName: String?, scopes: [String]?)? {
         let base = credentials.env("CLAUDE_CONFIG_DIR") ?? "~/.claude"
         let raw = Parse.object(credentials.keychain(service: "Claude Code-credentials", account: nil))
             ?? Parse.object(credentials.file(base + "/.credentials.json"))
@@ -60,7 +60,7 @@ struct ClaudeAuthStore: Sendable {
         let subType = oauth["subscriptionType"] as? String
         let tier = oauth["rateLimitTier"] as? String
         let plan = ClaudeMapper.formatPlan(subscriptionType: subType, rateLimitTier: tier)
-        return (token, plan)
+        return (token, plan, oauth["scopes"] as? [String])
     }
 }
 
@@ -95,8 +95,24 @@ enum ClaudeMapper {
                 ))
             }
         }
-        guard !lines.isEmpty else { throw ProviderError.parse }
+        guard !lines.isEmpty else {
+            // Free accounts get 200 with the windows present but null: nothing to show, not a broken response.
+            if body.keys.contains("five_hour") || body.keys.contains("seven_day") {
+                throw ProviderError.notAvailable(noSubscriptionMessage)
+            }
+            throw ProviderError.parse
+        }
         return lines
+    }
+
+    static let noSubscriptionMessage = "此帳號沒有訂閱額度（Pro / Max 才有 5H / 7D 限制）"
+    static let missingScopeMessage = "此登入無法讀取額度，請重新執行 claude 登入（setup-token 產生的 token 不行）"
+    static let usageScope = "user:profile"
+
+    /// Older credentials have no `scopes`; only a listed set that lacks the usage scope is a known dead end.
+    static func canReadUsage(scopes: [String]?) -> Bool {
+        guard let scopes, !scopes.isEmpty else { return true }
+        return scopes.contains(usageScope)
     }
 
     /// Reads the file `ClaudeStatusLineBridge` writes: `{"written_at": <epoch>, "rate_limits": {...}}` with
@@ -157,6 +173,10 @@ struct ClaudeRuntime: ProviderRuntime {
         guard let info = ClaudeAuthStore(credentials: credentials).credentialsInfo() else {
             throw ProviderError.notLoggedIn("找不到 Claude Code 登入，請先執行 claude")
         }
+        // Skip the request entirely: the endpoint would only 403 (and each call counts toward its rate limit).
+        guard ClaudeMapper.canReadUsage(scopes: info.scopes) else {
+            throw ProviderError.notAvailable(ClaudeMapper.missingScopeMessage)
+        }
         var req = URLRequest(url: URL(string: "https://api.anthropic.com/api/oauth/usage")!)
         req.httpMethod = "GET"
         req.setValue("Bearer \(info.accessToken.trimmingCharacters(in: .whitespacesAndNewlines))", forHTTPHeaderField: "Authorization")
@@ -165,6 +185,9 @@ struct ClaudeRuntime: ProviderRuntime {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue("claude-cli/2.1.294 (external, cli)", forHTTPHeaderField: "User-Agent")
         let r = try await http.send(req)
+        if r.status == 403, String(decoding: r.data, as: UTF8.self).contains(ClaudeMapper.usageScope) {
+            throw ProviderError.notAvailable(ClaudeMapper.missingScopeMessage)
+        }
         try ProviderError.check(r, unauthorizedHint: "Token 已過期，執行一次 claude 即可自動更新")
         let lines = try ClaudeMapper.map(r.json)
         let extra = ClaudeMapper.formatExtraUsage(r.json)

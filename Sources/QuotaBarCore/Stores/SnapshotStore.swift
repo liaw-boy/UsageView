@@ -5,18 +5,18 @@ public struct ProviderState: Sendable {
     public var snapshot: ProviderSnapshot?
     public var error: String?
     public var isRefreshing = false
-    /// Rate-limit (429) backoff: honoured by automatic and manual refreshes alike.
+    /// Pause for automatic refreshes after a 429 or a "no usage data" answer; in memory, so a restart or a manual
+    /// refresh retries, and reconnect/wake don't clear it.
     var backoffUntil: Date?
-    var backoffStep = 0
-    var backoffServerRequested = false
+    var backoffIsRateLimit = false
     /// Short pause after any other failure so a flaky connection isn't hammered; manual refresh may override it.
     var retryAfter: Date?
 
     public init() {}
     public var isStale: Bool { error != nil && snapshot != nil }
 
-    /// True while a 429 cooldown is active; refreshing sooner only prolongs the limit.
-    public var isRateLimited: Bool { (backoffUntil ?? .distantPast) > Date() }
+    /// True during a 429 pause; refreshing sooner only prolongs the limit.
+    public var isRateLimited: Bool { backoffIsRateLimit && (backoffUntil ?? .distantPast) > Date() }
 
     /// The failure reason to show next to cached numbers, so a stale card never fails silently.
     /// Hidden while offline (the offline note covers it) and when there is no snapshot (the error is the card's main text).
@@ -34,20 +34,21 @@ public final class SnapshotStore: ObservableObject {
     @Published public private(set) var states: [ProviderID: ProviderState] = [:]
     @Published public private(set) var carouselTick: Int = 0
     @Published public private(set) var isOnline = true
-    /// One-line explanation shown briefly after a manual refresh that was held back by a cooldown.
-    @Published public private(set) var refreshNotice: String?
 
     public static let manualThrottle: TimeInterval = 15
     public static let providerTimeout: TimeInterval = 120
-    static let backoffSteps: [TimeInterval] = [2, 5, 10, 20, 40].map { $0 * 60 }
+    /// Same as CodexBar / OpenUsage: the endpoint often sends `Retry-After: 0`, and retrying sooner prolongs the limit.
+    static let rateLimitPause: TimeInterval = 5 * 60
+    /// Caps a server `Retry-After` so a bogus or huge value can't stop automatic refreshes for good.
+    static let maxRateLimitPause: TimeInterval = 6 * 3600
     static let failureBackoff: TimeInterval = 60
     /// While Claude's status line file is current, the API is only needed for what the file lacks (scoped model limits, extra usage).
     static let claudeAPIIntervalWithStatusLine: TimeInterval = 30 * 60
 
-    static func rateLimitMessage(until: Date, serverRequested: Bool) -> String {
+    static func rateLimitMessage(until: Date) -> String {
         let f = DateFormatter()
         f.dateFormat = "HH:mm"
-        return "請求太頻繁，" + (serverRequested ? "伺服器要求等到 " : "將於 ") + f.string(from: until) + " 後自動重試"
+        return "官方暫時限流，約 \(f.string(from: until)) 自動重試"
     }
 
     private let runtimes: [ProviderRuntime]
@@ -61,7 +62,6 @@ public final class SnapshotStore: ObservableObject {
     private var refreshTimer: Timer?
     private var carouselTimer: Timer?
     private var lastManualRefresh: Date?
-    private var noticeTask: Task<Void, Never>?
     private let network: NetworkMonitoring?
     private let networkRestoreDelay: TimeInterval
     private var pendingNetworkRefresh: Task<Void, Never>?
@@ -85,7 +85,8 @@ public final class SnapshotStore: ObservableObject {
                 .appendingPathComponent("QuotaBar/quota-history.json"))
         for r in runtimes { states[r.id] = ProviderState() }
         loadCache()
-        loadCooldowns()
+        // Left behind by versions that persisted 429 cooldowns across restarts.
+        try? FileManager.default.removeItem(at: self.cacheURL.deletingPathExtension().appendingPathExtension("cooldowns.json"))
 
         settings.$refreshMinutes
             .removeDuplicates()
@@ -152,7 +153,7 @@ public final class SnapshotStore: ObservableObject {
     }
 
     /// Failures before a reconnect or wake were most likely the network's fault, so the short pause is dropped.
-    /// A 429 cooldown comes from the server and is never cleared here.
+    /// A 429 pause is kept: reconnecting doesn't lift the server's limit.
     private func clearFailurePauses() {
         for id in states.keys { states[id]?.retryAfter = nil }
     }
@@ -181,16 +182,15 @@ public final class SnapshotStore: ObservableObject {
     /// The refresh rules, in one place:
     /// - Automatic: never while offline; a provider is due once its last success is older than
     ///   the user interval (Claude: 30 min while its status line file is current, since that file already supplies
-    ///   5H/7D); skipped during a 429 cooldown or the short pause after any other failure.
-    /// - Manual: overrides cache age and the short failure pause, never a 429 cooldown; at most one manual refresh
-    ///   per `manualThrottle`.
-    /// - Connectivity restored / wake: one automatic pass after clearing the short failure pause (429 cooldowns stay).
+    ///   5H/7D); skipped during a 429 pause or the short pause after any other failure.
+    /// - Manual: overrides cache age and both pauses; at most one manual refresh per `manualThrottle`.
+    /// - Connectivity restored / wake: one automatic pass after clearing the short failure pause (429 pauses stay).
     func shouldFetch(_ id: ProviderID, state s: ProviderState, manual: Bool, now: Date) -> Bool {
         guard settings.isTracked(id), !s.isRefreshing else { return false }
-        guard (s.backoffUntil ?? .distantPast) <= now else { return false }
         if manual {
             return true
         }
+        guard (s.backoffUntil ?? .distantPast) <= now else { return false }
         guard (s.retryAfter ?? .distantPast) <= now else { return false }
         guard let lastAPI = s.snapshot?.lastAPIFetch else { return true } // Never fetched before
         var requiredAge = TimeInterval(settings.refreshMinutes * 60)
@@ -215,7 +215,6 @@ public final class SnapshotStore: ObservableObject {
             return shouldFetch(r.id, state: s, manual: manual, now: now)
         }
         debugLog("refresh manual=\(manual) online=\(isOnline) due=\(due.map { $0.id.rawValue })")
-        if manual { announceCooldowns(now: now) }
         guard !due.isEmpty else {
             if scanLocalMetadata {
                 Task { await self.refreshLocalMetadata() }
@@ -238,7 +237,7 @@ public final class SnapshotStore: ObservableObject {
 
     /// Uses the limits Claude Code's status line last saw when they are newer than our snapshot, so the card stays
     /// current without calling the rate-limited usage endpoint. Windows the file lacks (e.g. scoped model limits) keep
-    /// their last API values; a 429 cooldown stays in place but no longer shows as an error.
+    /// their last API values; a 429 pause stays in place but no longer shows as an error.
     func applyClaudeStatusLineLimits() {
         guard settings.isTracked(.claude), let url = claudeLimitsURL,
               let modified = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date,
@@ -317,7 +316,6 @@ public final class SnapshotStore: ObservableObject {
             )
             if let snap = s.snapshot { history.record(snap) }
             s.error = nil
-            s.backoffStep = 0
             s.backoffUntil = nil
             s.retryAfter = nil
         case .failure(let error):
@@ -327,13 +325,18 @@ public final class SnapshotStore: ObservableObject {
                 s.snapshot = existing
             }
             if case ProviderError.rateLimited(let retryAfter) = error {
-                let step = Self.backoffSteps[min(s.backoffStep, Self.backoffSteps.count - 1)]
-                let until = Date().addingTimeInterval(max(step, retryAfter ?? 0))
+                let wait = retryAfter.flatMap { $0.isFinite && $0 > 0 ? min($0, Self.maxRateLimitPause) : nil }
+                    ?? Self.rateLimitPause
+                let until = Date().addingTimeInterval(wait)
                 s.backoffUntil = until
-                s.backoffStep += 1
+                s.backoffIsRateLimit = true
                 s.retryAfter = nil
-                s.backoffServerRequested = (retryAfter ?? 0) > step
-                s.error = Self.rateLimitMessage(until: until, serverRequested: s.backoffServerRequested)
+                s.error = Self.rateLimitMessage(until: until)
+            } else if case ProviderError.notAvailable = error {
+                // Retrying won't change the answer until the account does; check again once per refresh interval.
+                s.backoffUntil = Date().addingTimeInterval(max(TimeInterval(settings.refreshMinutes * 60), Self.rateLimitPause))
+                s.backoffIsRateLimit = false
+                s.retryAfter = nil
             } else {
                 s.retryAfter = Date().addingTimeInterval(Self.failureBackoff)
             }
@@ -368,59 +371,6 @@ public final class SnapshotStore: ObservableObject {
         let snaps = states.values.compactMap(\.snapshot)
         try? FileManager.default.createDirectory(at: cacheURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? JSONEncoder().encode(snaps).write(to: cacheURL, options: .atomic)
-        saveCooldowns()
-    }
-
-    // MARK: - Cooldowns
-
-    /// A 429 cooldown outlives the process: restarting the app must not fire a request the server told us to hold back.
-    private struct SavedCooldown: Codable {
-        var until: Date
-        var step: Int
-        var serverRequested: Bool
-    }
-
-    private var cooldownURL: URL {
-        cacheURL.deletingPathExtension().appendingPathExtension("cooldowns.json")
-    }
-
-    private func saveCooldowns() {
-        var saved: [String: SavedCooldown] = [:]
-        for (id, s) in states {
-            guard let until = s.backoffUntil else { continue }
-            saved[id.rawValue] = SavedCooldown(until: until, step: s.backoffStep, serverRequested: s.backoffServerRequested)
-        }
-        try? JSONEncoder().encode(saved).write(to: cooldownURL, options: .atomic)
-    }
-
-    private func loadCooldowns() {
-        guard let data = try? Data(contentsOf: cooldownURL),
-              let saved = try? JSONDecoder().decode([String: SavedCooldown].self, from: data) else { return }
-        let now = Date()
-        for (raw, c) in saved {
-            guard let id = ProviderID(rawValue: raw), states[id] != nil, c.until > now else { continue }
-            states[id]?.backoffUntil = c.until
-            states[id]?.backoffStep = c.step
-            states[id]?.backoffServerRequested = c.serverRequested
-            states[id]?.error = Self.rateLimitMessage(until: c.until, serverRequested: c.serverRequested)
-        }
-    }
-
-    /// A manual refresh skips providers in a cooldown; say so instead of silently doing nothing.
-    private func announceCooldowns(now: Date) {
-        let f = DateFormatter()
-        f.dateFormat = "HH:mm"
-        let held = runtimes.compactMap { r -> String? in
-            guard settings.isTracked(r.id), let until = states[r.id]?.backoffUntil, until > now else { return nil }
-            return "\(r.id.displayName) 冷卻中，\(f.string(from: until)) 後才能重試"
-        }
-        guard !held.isEmpty else { return }
-        refreshNotice = held.joined(separator: "；")
-        noticeTask?.cancel()
-        noticeTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(6))
-            if !Task.isCancelled { self?.refreshNotice = nil }
-        }
     }
 
     // Test & Docs preview hooks
