@@ -237,6 +237,7 @@ enum DocsImageExporter {
         settings.menuBarDisplayMode = .single
         settings.menuBarMetricMode = .sessionAndWeekly
         settings.menuBarIconStyle = .logo
+        settings.floatingBallEnabled = true // show the floating ball options in the settings preview
 
         let tmpCache = fm.temporaryDirectory.appendingPathComponent("docs-\(UUID().uuidString).json")
         let store = SnapshotStore(settings: settings, cacheURL: tmpCache)
