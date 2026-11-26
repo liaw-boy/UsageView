@@ -115,6 +115,10 @@ public final class SnapshotStore: ObservableObject {
         runtimes.map(\.id).filter(settings.isShownInMenuBar)
     }
 
+    public func providers(on target: StripTarget) -> [ProviderID] {
+        runtimes.map(\.id).filter { settings.isShown($0, on: target) }
+    }
+
     public var lastUpdated: Date? {
         states.values.compactMap(\.snapshot?.fetchedAt).max()
     }

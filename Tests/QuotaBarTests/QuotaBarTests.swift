@@ -260,24 +260,68 @@ final class QuotaBarTests: XCTestCase {
         let s = SettingsStore(defaults: defaults)
         XCTAssertFalse(s.floatingBallEnabled)
         XCTAssertEqual(s.floatingBallStyle, .pill)
-        XCTAssertFalse(s.hideMenuBarWhenFloating)
+        XCTAssertTrue(s.menuBarIconEnabled)
 
         s.floatingBallEnabled = true
         s.floatingBallStyle = .orb
         s.floatingBallOpacity = 0.80
-        s.hideMenuBarWhenFloating = true
+        s.menuBarIconEnabled = false
         s.saveFloatingBallOrigin(CGPoint(x: 120, y: 240))
 
         let reloaded = SettingsStore(defaults: defaults)
         XCTAssertTrue(reloaded.floatingBallEnabled)
         XCTAssertEqual(reloaded.floatingBallStyle, .orb)
         XCTAssertEqual(reloaded.floatingBallOpacity, 0.80, accuracy: 0.001)
-        XCTAssertTrue(reloaded.hideMenuBarWhenFloating)
+        XCTAssertFalse(reloaded.menuBarIconEnabled)
         XCTAssertEqual(reloaded.savedFloatingBallOrigin(), CGPoint(x: 120, y: 240))
 
-        // Turning off the floating ball must automatically un-hide the menu bar icon.
+        // At least one of the two stays on, whichever is turned off last.
         reloaded.floatingBallEnabled = false
-        XCTAssertFalse(reloaded.hideMenuBarWhenFloating)
+        XCTAssertTrue(reloaded.menuBarIconEnabled)
+        reloaded.menuBarIconEnabled = false
+        XCTAssertTrue(reloaded.floatingBallEnabled)
+    }
+
+    @MainActor
+    func testFloatingBallHasItsOwnDisplaySettings() {
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        defaults.set("carousel", forKey: "menuBarDisplayMode")
+        defaults.set(["claude", "codex"], forKey: "menuBarProviders")
+        let s = SettingsStore(defaults: defaults)
+        // First launch copies the menu bar's choices so the ball starts out looking the same.
+        XCTAssertEqual(s.strip(.floatingBall), s.strip(.menuBar))
+        XCTAssertEqual(s.floatingBallProviders, [.claude, .codex])
+
+        s.floatingBallDisplayMode = .all
+        s.floatingBallMetricMode = .sessionOnly
+        s.setShownInFloatingBall(.antigravity, true)
+        s.setShownInFloatingBall(.claude, false)
+        XCTAssertEqual(s.menuBarDisplayMode, .carousel)
+        XCTAssertFalse(s.isShownInMenuBar(.antigravity))
+        XCTAssertTrue(s.isShownInMenuBar(.claude))
+
+        let reloaded = SettingsStore(defaults: defaults)
+        XCTAssertEqual(reloaded.strip(.floatingBall).displayMode, .all)
+        XCTAssertEqual(reloaded.strip(.floatingBall).metricMode, .sessionOnly)
+        XCTAssertTrue(reloaded.isShownInFloatingBall(.antigravity))
+        XCTAssertFalse(reloaded.isShownInFloatingBall(.claude))
+        XCTAssertFalse(reloaded.availableProviders(for: .floatingBall).contains(.claude))
+
+        reloaded.setTracked(.codex, false)
+        XCTAssertFalse(reloaded.isShownInFloatingBall(.codex))
+    }
+
+    @MainActor
+    func testOldHideMenuBarOptionMigrates() {
+        func load(_ values: [String: Bool]) -> SettingsStore {
+            let defaults = UserDefaults(suiteName: UUID().uuidString)!
+            values.forEach { defaults.set($1, forKey: $0) }
+            return SettingsStore(defaults: defaults)
+        }
+        XCTAssertFalse(load(["floatingBallEnabled": true, "hideMenuBarWhenFloating": true]).menuBarIconEnabled)
+        XCTAssertTrue(load(["floatingBallEnabled": true]).menuBarIconEnabled)
+        XCTAssertTrue(load(["hideMenuBarWhenFloating": true]).menuBarIconEnabled) // ball off: icon must stay
+        XCTAssertTrue(load(["menuBarIconEnabled": false]).menuBarIconEnabled)      // never both off
     }
 
     func testPlanAndExtraUsageFormatting() {

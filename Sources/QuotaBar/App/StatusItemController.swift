@@ -66,11 +66,9 @@ final class StatusItemController: NSObject, ObservableObject, NSPopoverDelegate 
             Task { @MainActor in self?.store.systemDidWake() }
         }
 
-        Publishers.CombineLatest(settings.$floatingBallEnabled, settings.$hideMenuBarWhenFloating)
+        settings.$menuBarIconEnabled
             .receive(on: RunLoop.main)
-            .sink { [weak self] ballOn, hideBar in
-                self?.statusItem.isVisible = !(ballOn && hideBar)
-            }
+            .sink { [weak self] on in self?.statusItem.isVisible = on }
             .store(in: &cancellables)
 
         updateStrip()

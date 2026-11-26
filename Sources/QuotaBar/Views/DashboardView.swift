@@ -983,6 +983,18 @@ struct SettingsView: View {
                         ) {
                             settings.setShownInMenuBar(id, !inBar)
                         }
+
+                        if settings.floatingBallEnabled {
+                            let inBall = settings.isShownInFloatingBall(id)
+                            PillToggleButton(
+                                title: "懸浮球",
+                                icon: "circle.circle",
+                                isOn: inBall,
+                                accent: accent
+                            ) {
+                                settings.setShownInFloatingBall(id, !inBall)
+                            }
+                        }
                     }
                 }
             }
@@ -1058,17 +1070,45 @@ struct SettingsView: View {
     private var displayModeCard: some View {
         SettingsCard(title: "狀態列顯示與輪播設定", icon: "menubar.rectangle") {
             VStack(alignment: .leading, spacing: 8) {
+                SettingsToggleRow(
+                    title: "顯示狀態列圖示",
+                    subtitle: "與桌面懸浮球至少保留一個；兩者都關閉時會自動保留另一個",
+                    isOn: $settings.menuBarIconEnabled
+                )
+
+                stripOptions(.menuBar)
+            }
+        }
+    }
+
+    /// Mode / period / icon rows, shared by the menu bar card and the floating ball card (each has its own settings).
+    @ViewBuilder
+    private func stripOptions(_ target: StripTarget, showIcon: Bool = true) -> some View {
+        let prefix = target == .menuBar ? "狀態列" : "懸浮球"
+        let available = settings.availableProviders(for: target)
+        let mode = Binding(get: { settings.strip(target).displayMode }, set: { value in
+            if target == .menuBar { settings.menuBarDisplayMode = value } else { settings.floatingBallDisplayMode = value }
+        })
+        let single = Binding(get: { settings.strip(target).singleProvider }, set: { value in
+            if target == .menuBar { settings.selectedSingleProvider = value } else { settings.floatingBallSingleProvider = value }
+        })
+        let metric = Binding(get: { settings.strip(target).metricMode }, set: { value in
+            if target == .menuBar { settings.menuBarMetricMode = value } else { settings.floatingBallMetricMode = value }
+        })
+        let icon = Binding(get: { settings.strip(target).iconStyle }, set: { value in
+            if target == .menuBar { settings.menuBarIconStyle = value } else { settings.floatingBallIconStyle = value }
+        })
                 HStack {
-                    Text("狀態列模式")
+                    Text("\(prefix)模式")
                         .font(.system(size: 11.5, weight: .medium))
                         .foregroundStyle(.white.opacity(0.9))
                         .lineLimit(1)
                     Spacer()
-                    ModeSegmentedPicker(selection: $settings.menuBarDisplayMode)
+                    ModeSegmentedPicker(selection: mode)
                 }
 
                 // Immediately below "狀態列模式" when ".single" is selected!
-                if settings.menuBarDisplayMode == .single && !settings.availableMenuBarProviders.isEmpty {
+                if mode.wrappedValue == .single && !available.isEmpty {
                     HStack(spacing: 6) {
                         Text("單一顯示")
                             .font(.system(size: 11, weight: .medium))
@@ -1077,10 +1117,10 @@ struct SettingsView: View {
                             .fixedSize(horizontal: true, vertical: false)
                         Spacer(minLength: 4)
                         HStack(spacing: 4) {
-                            ForEach(settings.availableMenuBarProviders) { id in
-                                let sel = settings.selectedSingleProvider == id
+                            ForEach(available) { id in
+                                let sel = single.wrappedValue == id
                                 Button {
-                                    settings.selectedSingleProvider = id
+                                    single.wrappedValue = id
                                 } label: {
                                     HStack(spacing: 3.5) {
                                         ProviderLogoView(provider: id, size: 10.5, tinted: true)
@@ -1104,18 +1144,18 @@ struct SettingsView: View {
                 }
 
                 HStack {
-                    Text("狀態列週期")
+                    Text("\(prefix)週期")
                         .font(.system(size: 11.5, weight: .medium))
                         .foregroundStyle(.white.opacity(0.9))
                         .lineLimit(1)
                     Spacer()
                     HStack(spacing: 3) {
-                        ForEach(MenuBarMetricMode.allCases, id: \.self) { mode in
-                            let selected = settings.menuBarMetricMode == mode
+                        ForEach(MenuBarMetricMode.allCases, id: \.self) { option in
+                            let selected = metric.wrappedValue == option
                             Button {
-                                settings.menuBarMetricMode = mode
+                                metric.wrappedValue = option
                             } label: {
-                                Text(mode.title)
+                                Text(option.title)
                                     .font(.system(size: 10.5, weight: .semibold, design: .rounded))
                                     .lineLimit(1)
                                     .fixedSize(horizontal: true, vertical: false)
@@ -1135,39 +1175,39 @@ struct SettingsView: View {
                     .fixedSize(horizontal: true, vertical: false)
                 }
 
-                HStack {
-                    Text("狀態列圖示")
-                        .font(.system(size: 11.5, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.9))
-                        .lineLimit(1)
-                    Spacer()
-                    HStack(spacing: 3) {
-                        ForEach(MenuBarIconStyle.allCases, id: \.self) { style in
-                            let selected = settings.menuBarIconStyle == style
-                            Button {
-                                settings.menuBarIconStyle = style
-                            } label: {
-                                Text(style.title)
-                                    .font(.system(size: 10.5, weight: .semibold, design: .rounded))
-                                    .lineLimit(1)
-                                    .fixedSize(horizontal: true, vertical: false)
-                                    .foregroundStyle(selected ? .white : .white.opacity(0.5))
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 3.5)
-                                    .background(
-                                        Capsule()
-                                            .fill(selected ? Color.white.opacity(0.18) : Color.clear)
-                                    )
+                if showIcon {
+                    HStack {
+                        Text("\(prefix)圖示")
+                            .font(.system(size: 11.5, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.9))
+                            .lineLimit(1)
+                        Spacer()
+                        HStack(spacing: 3) {
+                            ForEach(MenuBarIconStyle.allCases, id: \.self) { style in
+                                let selected = icon.wrappedValue == style
+                                Button {
+                                    icon.wrappedValue = style
+                                } label: {
+                                    Text(style.title)
+                                        .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                                        .lineLimit(1)
+                                        .fixedSize(horizontal: true, vertical: false)
+                                        .foregroundStyle(selected ? .white : .white.opacity(0.5))
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 3.5)
+                                        .background(
+                                            Capsule()
+                                                .fill(selected ? Color.white.opacity(0.18) : Color.clear)
+                                        )
+                                }
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
                         }
+                        .padding(2)
+                        .background(Color.white.opacity(0.06), in: Capsule())
+                        .fixedSize(horizontal: true, vertical: false)
                     }
-                    .padding(2)
-                    .background(Color.white.opacity(0.06), in: Capsule())
-                    .fixedSize(horizontal: true, vertical: false)
                 }
-            }
-        }
     }
 
     private var floatingBallCard: some View {
@@ -1181,6 +1221,8 @@ struct SettingsView: View {
 
                 if settings.floatingBallEnabled {
                     Divider().overlay(Color.white.opacity(0.08))
+
+                    stripOptions(.floatingBall, showIcon: settings.floatingBallStyle == .pill)
 
                     HStack {
                         Text("懸浮球外觀")
@@ -1242,12 +1284,6 @@ struct SettingsView: View {
                         .background(Color.white.opacity(0.06), in: Capsule())
                         .fixedSize(horizontal: true, vertical: false)
                     }
-
-                    SettingsToggleRow(
-                        title: "同時隱藏頂部狀態列圖示",
-                        subtitle: "關閉懸浮球時會自動恢復狀態列圖示",
-                        isOn: $settings.hideMenuBarWhenFloating
-                    )
                 }
             }
         }

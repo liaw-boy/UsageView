@@ -63,6 +63,16 @@ public enum FloatingBallStyle: String, CaseIterable, Codable, Sendable {
     }
 }
 
+/// Where a strip of provider readings is drawn; each surface has its own providers, mode, period and icon.
+public enum StripTarget: Sendable { case menuBar, floatingBall }
+
+public struct StripSettings: Equatable, Sendable {
+    public let displayMode: MultiProviderDisplayMode
+    public let metricMode: MenuBarMetricMode
+    public let iconStyle: MenuBarIconStyle
+    public let singleProvider: ProviderID
+}
+
 @MainActor
 public final class SettingsStore: ObservableObject {
     private let defaults: UserDefaults
@@ -136,23 +146,41 @@ public final class SettingsStore: ObservableObject {
         didSet { defaults.set(cleanupMinSizeMB, forKey: "cleanupMinSizeMB") }
     }
 
-    /// 懸浮球開關與外觀設定（解決狀態列空間不足）
+    /// Menu bar icon and floating ball are independent, but at least one stays on: the app has no Dock icon,
+    /// so with both off there would be no way back into it.
+    @Published public var menuBarIconEnabled: Bool {
+        didSet {
+            defaults.set(menuBarIconEnabled, forKey: "menuBarIconEnabled")
+            if !menuBarIconEnabled && !floatingBallEnabled { floatingBallEnabled = true }
+        }
+    }
     @Published public var floatingBallEnabled: Bool {
         didSet {
             defaults.set(floatingBallEnabled, forKey: "floatingBallEnabled")
-            if !floatingBallEnabled && hideMenuBarWhenFloating {
-                hideMenuBarWhenFloating = false
-            }
+            if !floatingBallEnabled && !menuBarIconEnabled { menuBarIconEnabled = true }
         }
+    }
+    /// The floating ball's own copy of the menu bar display options (seeded from the menu bar on first launch).
+    @Published public var floatingBallProviders: Set<ProviderID> {
+        didSet { defaults.set(floatingBallProviders.map(\.rawValue), forKey: "floatingBallProviders") }
+    }
+    @Published public var floatingBallDisplayMode: MultiProviderDisplayMode {
+        didSet { defaults.set(floatingBallDisplayMode.rawValue, forKey: "floatingBallDisplayMode") }
+    }
+    @Published public var floatingBallMetricMode: MenuBarMetricMode {
+        didSet { defaults.set(floatingBallMetricMode.rawValue, forKey: "floatingBallMetricMode") }
+    }
+    @Published public var floatingBallIconStyle: MenuBarIconStyle {
+        didSet { defaults.set(floatingBallIconStyle.rawValue, forKey: "floatingBallIconStyle") }
+    }
+    @Published public var floatingBallSingleProvider: ProviderID {
+        didSet { defaults.set(floatingBallSingleProvider.rawValue, forKey: "floatingBallSingleProvider") }
     }
     @Published public var floatingBallStyle: FloatingBallStyle {
         didSet { defaults.set(floatingBallStyle.rawValue, forKey: "floatingBallStyle") }
     }
     @Published public var floatingBallOpacity: Double {
         didSet { defaults.set(floatingBallOpacity, forKey: "floatingBallOpacity") }
-    }
-    @Published public var hideMenuBarWhenFloating: Bool {
-        didSet { defaults.set(hideMenuBarWhenFloating, forKey: "hideMenuBarWhenFloating") }
     }
 
     public static let floatingBallOpacityOptions: [Double] = [0.60, 0.80, 0.95]
@@ -184,11 +212,19 @@ public final class SettingsStore: ObservableObject {
         notificationsEnabled = defaults.object(forKey: "notifications") as? Bool ?? true
         claudeStatusLineBridge = defaults.object(forKey: "claudeStatusLineBridge") as? Bool ?? true
 
-        menuBarDisplayMode = MultiProviderDisplayMode(rawValue: defaults.string(forKey: "menuBarDisplayMode") ?? "") ?? .all
-        menuBarMetricMode = MenuBarMetricMode(rawValue: defaults.string(forKey: "menuBarMetricMode") ?? "") ?? .sessionAndWeekly
-        menuBarIconStyle = MenuBarIconStyle(rawValue: defaults.string(forKey: "menuBarIconStyle") ?? "") ?? .logo
+        let barMode = MultiProviderDisplayMode(rawValue: defaults.string(forKey: "menuBarDisplayMode") ?? "") ?? .all
+        let barMetric = MenuBarMetricMode(rawValue: defaults.string(forKey: "menuBarMetricMode") ?? "") ?? .sessionAndWeekly
+        let barIcon = MenuBarIconStyle(rawValue: defaults.string(forKey: "menuBarIconStyle") ?? "") ?? .logo
+        let barSingle = ProviderID(rawValue: defaults.string(forKey: "selectedSingleProvider") ?? "") ?? .claude
+        menuBarDisplayMode = barMode
+        menuBarMetricMode = barMetric
+        menuBarIconStyle = barIcon
         panelDisplayMode = MultiProviderDisplayMode(rawValue: defaults.string(forKey: "panelDisplayMode") ?? "") ?? .all
-        selectedSingleProvider = ProviderID(rawValue: defaults.string(forKey: "selectedSingleProvider") ?? "") ?? .claude
+        selectedSingleProvider = barSingle
+        floatingBallDisplayMode = MultiProviderDisplayMode(rawValue: defaults.string(forKey: "floatingBallDisplayMode") ?? "") ?? barMode
+        floatingBallMetricMode = MenuBarMetricMode(rawValue: defaults.string(forKey: "floatingBallMetricMode") ?? "") ?? barMetric
+        floatingBallIconStyle = MenuBarIconStyle(rawValue: defaults.string(forKey: "floatingBallIconStyle") ?? "") ?? barIcon
+        floatingBallSingleProvider = ProviderID(rawValue: defaults.string(forKey: "floatingBallSingleProvider") ?? "") ?? barSingle
         let oc = OpenCodeQuotaConfig.load(from: defaults)
         opencodeQuotaMode = oc.mode
         opencodeSessionBudget = oc.customSessionBudget
@@ -205,7 +241,10 @@ public final class SettingsStore: ObservableObject {
         floatingBallStyle = FloatingBallStyle(rawValue: defaults.string(forKey: "floatingBallStyle") ?? "") ?? .pill
         let rawOpacity = defaults.object(forKey: "floatingBallOpacity") as? Double ?? 0.95
         floatingBallOpacity = min(max(rawOpacity, 0.45), 1.0)
-        hideMenuBarWhenFloating = fbEnabled && defaults.bool(forKey: "hideMenuBarWhenFloating")
+        // Migrates the old "hide the menu bar icon while the ball is shown" option.
+        let iconOn = defaults.object(forKey: "menuBarIconEnabled") as? Bool
+            ?? !(fbEnabled && defaults.bool(forKey: "hideMenuBarWhenFloating"))
+        menuBarIconEnabled = iconOn || !fbEnabled
 
         let all = Set(ProviderID.allCases)
         let initialTracked: Set<ProviderID>
@@ -224,11 +263,11 @@ public final class SettingsStore: ObservableObject {
             panelProviders = initialTracked
         }
 
-        if let saved = defaults.stringArray(forKey: "menuBarProviders") {
-            menuBarProviders = Set(saved.compactMap(ProviderID.init))
-        } else {
-            menuBarProviders = initialTracked
-        }
+        let barProviders = defaults.stringArray(forKey: "menuBarProviders").map { Set($0.compactMap(ProviderID.init)) }
+            ?? initialTracked
+        menuBarProviders = barProviders
+        floatingBallProviders = defaults.stringArray(forKey: "floatingBallProviders").map { Set($0.compactMap(ProviderID.init)) }
+            ?? barProviders
     }
 
     // MARK: - Queries
@@ -236,13 +275,31 @@ public final class SettingsStore: ObservableObject {
     public func isTracked(_ id: ProviderID) -> Bool { trackedProviders.contains(id) }
     public func isShownInPanel(_ id: ProviderID) -> Bool { isTracked(id) && panelProviders.contains(id) }
     public func isShownInMenuBar(_ id: ProviderID) -> Bool { isTracked(id) && menuBarProviders.contains(id) }
+    public func isShownInFloatingBall(_ id: ProviderID) -> Bool { isTracked(id) && floatingBallProviders.contains(id) }
+
+    public func isShown(_ id: ProviderID, on target: StripTarget) -> Bool {
+        target == .menuBar ? isShownInMenuBar(id) : isShownInFloatingBall(id)
+    }
+
+    public func strip(_ target: StripTarget) -> StripSettings {
+        switch target {
+        case .menuBar:
+            StripSettings(displayMode: menuBarDisplayMode, metricMode: menuBarMetricMode,
+                          iconStyle: menuBarIconStyle, singleProvider: selectedSingleProvider)
+        case .floatingBall:
+            StripSettings(displayMode: floatingBallDisplayMode, metricMode: floatingBallMetricMode,
+                          iconStyle: floatingBallIconStyle, singleProvider: floatingBallSingleProvider)
+        }
+    }
+
+    /// Providers eligible for that surface's "單一顯示" selector.
+    public func availableProviders(for target: StripTarget) -> [ProviderID] {
+        let shown = ProviderID.allCases.filter { isShown($0, on: target) }
+        return shown.isEmpty ? ProviderID.allCases.filter { isTracked($0) } : shown
+    }
 
     /// Providers eligible for the "單一顯示" selector in Settings (only tracked providers enabled in the menu bar).
-    public var availableMenuBarProviders: [ProviderID] {
-        let inBar = ProviderID.allCases.filter { isShownInMenuBar($0) }
-        if !inBar.isEmpty { return inBar }
-        return ProviderID.allCases.filter { isTracked($0) }
-    }
+    public var availableMenuBarProviders: [ProviderID] { availableProviders(for: .menuBar) }
 
     // MARK: - Mutations with smart cascade
 
@@ -251,10 +308,12 @@ public final class SettingsStore: ObservableObject {
             trackedProviders.insert(id)
             panelProviders.insert(id)
             menuBarProviders.insert(id)
+            floatingBallProviders.insert(id)
         } else {
             trackedProviders.remove(id)
             panelProviders.remove(id)
             menuBarProviders.remove(id)
+            floatingBallProviders.remove(id)
         }
         syncSelectedSingleProvider()
     }
@@ -278,10 +337,24 @@ public final class SettingsStore: ObservableObject {
         syncSelectedSingleProvider()
     }
 
+    public func setShownInFloatingBall(_ id: ProviderID, _ on: Bool) {
+        if on {
+            trackedProviders.insert(id)
+            floatingBallProviders.insert(id)
+        } else {
+            floatingBallProviders.remove(id)
+        }
+        syncSelectedSingleProvider()
+    }
+
     private func syncSelectedSingleProvider() {
         let valid = availableMenuBarProviders
         if !valid.contains(selectedSingleProvider), let first = valid.first {
             selectedSingleProvider = first
+        }
+        let ballValid = availableProviders(for: .floatingBall)
+        if !ballValid.contains(floatingBallSingleProvider), let first = ballValid.first {
+            floatingBallSingleProvider = first
         }
     }
 }

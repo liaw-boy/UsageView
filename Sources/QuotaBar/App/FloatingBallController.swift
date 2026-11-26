@@ -14,6 +14,7 @@ final class FloatingBallController: NSObject {
     private var panel: NSPanel?
     private var hostingView: NSHostingView<FloatingBallView>?
     private var dragView: FloatingDragContainerView?
+    private var isHovering = false
     private var cancellables = Set<AnyCancellable>()
 
     init(store: SnapshotStore, settings: SettingsStore, statusItem: StatusItemController) {
@@ -28,6 +29,12 @@ final class FloatingBallController: NSObject {
             .sink { [weak self] enabled in
                 self?.setVisible(enabled)
             }
+            .store(in: &cancellables)
+
+        settings.$floatingBallOpacity
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.applyOpacity() }
             .store(in: &cancellables)
 
         store.objectWillChange
@@ -99,6 +106,10 @@ final class FloatingBallController: NSObject {
         container.onRightClick = { [weak self] view, event in
             self?.showContextMenu(from: view, event: event)
         }
+        container.onHover = { [weak self] hovering in
+            self?.isHovering = hovering
+            self?.applyOpacity()
+        }
         container.onDragEnded = { [weak self] origin in
             guard let self else { return }
             self.clampPanelToVisibleScreen()
@@ -113,6 +124,7 @@ final class FloatingBallController: NSObject {
         self.panel = p
         self.hostingView = hosting
         self.dragView = container
+        applyOpacity()
 
         // Initial placement: saved origin or top-right corner of main screen.
         let size = hosting.fittingSize
@@ -126,27 +138,44 @@ final class FloatingBallController: NSObject {
         }
     }
 
+    /// Fully opaque while the pointer is over the ball, the chosen opacity otherwise. Set on the panel (not in
+    /// SwiftUI) because `onHover` doesn't fire in a non-activating panel while the app is in the background.
+    private func applyOpacity() {
+        guard let panel else { return }
+        let target = isHovering ? 1.0 : settings.floatingBallOpacity
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.16
+            panel.animator().alphaValue = target
+        }
+    }
+
     private func syncPanelSize() {
         guard panel != nil, hostingView != nil, settings.floatingBallEnabled else { return }
-        DispatchQueue.main.async { [weak self] in
-            guard let self, let panel = self.panel, let hosting = self.hostingView else { return }
-            hosting.layoutSubtreeIfNeeded()
-            let fit = hosting.fittingSize
-            guard fit.width > 10, fit.height > 10 else { return }
-            let newSize = NSSize(width: ceil(fit.width), height: ceil(fit.height))
-            var frame = panel.frame
-            if abs(frame.width - newSize.width) > 0.5 || abs(frame.height - newSize.height) > 0.5 {
-                // Keep the right/top anchor stable when switching between orb and pill near the right edge.
-                if let screen = panel.screen ?? NSScreen.main,
-                   frame.midX > screen.visibleFrame.midX {
-                    frame.origin.x = frame.maxX - newSize.width
-                }
-                frame.origin.y = frame.maxY - newSize.height
-                frame.size = newSize
-                panel.setFrame(frame, display: true)
-                self.clampPanelToVisibleScreen()
-            }
+        // objectWillChange fires before SwiftUI re-lays out (e.g. switching to "全部" widens the ball), so measure
+        // now and once more after the new layout has settled.
+        for delay in [0.0, 0.15] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in self?.resizeToFit() }
         }
+    }
+
+    private func resizeToFit() {
+        guard let panel, let hosting = hostingView, settings.floatingBallEnabled else { return }
+        hosting.layoutSubtreeIfNeeded()
+        let fit = hosting.fittingSize
+        guard fit.width > 10, fit.height > 10 else { return }
+        let newSize = NSSize(width: ceil(fit.width), height: ceil(fit.height))
+        var frame = panel.frame
+        if abs(frame.width - newSize.width) > 0.5 || abs(frame.height - newSize.height) > 0.5 {
+            // Keep the right/top anchor stable when switching between orb and pill near the right edge.
+            if let screen = panel.screen ?? NSScreen.main,
+               frame.midX > screen.visibleFrame.midX {
+                frame.origin.x = frame.maxX - newSize.width
+            }
+            frame.origin.y = frame.maxY - newSize.height
+            frame.size = newSize
+            panel.setFrame(frame, display: true)
+        }
+        clampPanelToVisibleScreen()
     }
 
     private func clampPanelToVisibleScreen() {
@@ -189,10 +218,10 @@ final class FloatingBallController: NSObject {
         pctItem.target = self
         menu.addItem(pctItem)
 
-        let hideBarItem = NSMenuItem(title: "隱藏狀態列圖示", action: #selector(menuToggleHideMenuBar), keyEquivalent: "")
-        hideBarItem.target = self
-        hideBarItem.state = settings.hideMenuBarWhenFloating ? .on : .off
-        menu.addItem(hideBarItem)
+        let barItem = NSMenuItem(title: "顯示狀態列圖示", action: #selector(menuToggleMenuBarIcon), keyEquivalent: "")
+        barItem.target = self
+        barItem.state = settings.menuBarIconEnabled ? .on : .off
+        menu.addItem(barItem)
 
         menu.addItem(.separator())
 
@@ -200,7 +229,7 @@ final class FloatingBallController: NSObject {
         settingsItem.target = self
         menu.addItem(settingsItem)
 
-        let hideBallItem = NSMenuItem(title: "關閉懸浮球（恢復狀態列）", action: #selector(menuHideBall), keyEquivalent: "")
+        let hideBallItem = NSMenuItem(title: "關閉懸浮球", action: #selector(menuHideBall), keyEquivalent: "")
         hideBallItem.target = self
         menu.addItem(hideBallItem)
 
@@ -225,8 +254,8 @@ final class FloatingBallController: NSObject {
         settings.showRemaining.toggle()
     }
 
-    @objc private func menuToggleHideMenuBar() {
-        settings.hideMenuBarWhenFloating.toggle()
+    @objc private func menuToggleMenuBarIcon() {
+        settings.menuBarIconEnabled.toggle()
     }
 
     @objc private func menuOpenSettings() {
@@ -247,6 +276,17 @@ private final class FloatingDragContainerView: NSView {
     var onClick: ((NSView) -> Void)?
     var onRightClick: ((NSView, NSEvent) -> Void)?
     var onDragEnded: ((NSPoint) -> Void)?
+    var onHover: ((Bool) -> Void)?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+                                       owner: self, userInfo: nil))
+    }
+
+    override func mouseEntered(with event: NSEvent) { onHover?(true) }
+    override func mouseExited(with event: NSEvent) { onHover?(false) }
 
     private var initialMouseScreen: NSPoint = .zero
     private var initialWindowOrigin: NSPoint = .zero
@@ -300,19 +340,8 @@ private struct FloatingBallView: View {
     @ObservedObject var settings: SettingsStore
     @State private var isHovered = false
 
-    private var activeItems: [(ProviderID, ProviderSnapshot)] {
-        let providers = store.menuBarProviders.isEmpty ? store.trackedProviders : store.menuBarProviders
-        return providers.compactMap { id -> (ProviderID, ProviderSnapshot)? in
-            guard let snap = store.states[id]?.snapshot else { return nil }
-            guard !snap.lines.isEmpty || snap.localSpend?.hasAnyUsage == true else { return nil }
-            return (id, snap)
-        }
-    }
-
-    private var orbItem: (ProviderID, ProviderSnapshot)? {
-        guard !activeItems.isEmpty else { return nil }
-        let idx = abs(store.carouselTick) % activeItems.count
-        return activeItems[idx]
+    private var orbItems: [(ProviderID, ProviderSnapshot)] {
+        MenuBarStripView.items(store: store, settings: settings, target: .floatingBall)
     }
 
     var body: some View {
@@ -324,7 +353,6 @@ private struct FloatingBallView: View {
                 pillBody
             }
         }
-        .opacity(isHovered ? 1.0 : settings.floatingBallOpacity)
         .onHover { hovering in
             withAnimation(.easeOut(duration: 0.16)) {
                 isHovered = hovering
@@ -333,7 +361,19 @@ private struct FloatingBallView: View {
         .environment(\.colorScheme, .dark)
     }
 
+    @ViewBuilder
     private var orbBody: some View {
+        let items = orbItems
+        if items.isEmpty {
+            orb(nil)
+        } else {
+            HStack(spacing: 2) {
+                ForEach(items, id: \.0) { item in orb(item) }
+            }
+        }
+    }
+
+    private func orb(_ item: (ProviderID, ProviderSnapshot)?) -> some View {
         ZStack {
             Circle()
                 .fill(Color(red: 0.125, green: 0.133, blue: 0.153).opacity(0.94))
@@ -341,7 +381,7 @@ private struct FloatingBallView: View {
                     Circle().strokeBorder(Color.white.opacity(isHovered ? 0.28 : 0.14), lineWidth: 1)
                 )
 
-            if let (id, snap) = orbItem {
+            if let (id, snap) = item {
                 if snap.lines.isEmpty {
                     VStack(spacing: 1) {
                         ProviderLogoView(provider: id, size: 13, tinted: true)
@@ -356,7 +396,8 @@ private struct FloatingBallView: View {
                         lines: snap.lines,
                         showRemaining: settings.showRemaining,
                         size: 46,
-                        lineWidth: 3.4
+                        lineWidth: 3.4,
+                        showWeekly: settings.floatingBallMetricMode == .sessionAndWeekly
                     )
                     .overlay {
                         VStack(spacing: 0.5) {
@@ -381,7 +422,7 @@ private struct FloatingBallView: View {
     }
 
     private var pillBody: some View {
-        MenuBarStripView(store: store, settings: settings)
+        MenuBarStripView(store: store, settings: settings, target: .floatingBall)
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
             .background(

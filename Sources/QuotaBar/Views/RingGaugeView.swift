@@ -184,6 +184,7 @@ struct DualRingGauge: View {
     let showRemaining: Bool
     var size: CGFloat = 62
     var lineWidth: CGFloat = 4.8
+    var showWeekly = true
 
     private var sessionUsed: Double {
         if provider == .antigravity,
@@ -210,12 +211,12 @@ struct DualRingGauge: View {
         ZStack {
             if provider == .antigravity, hasSplitPools {
                 splitRing(kind: .session, inset: 0)
-                if size >= 24 {
+                if size >= 24, showWeekly {
                     splitRing(kind: .weekly, inset: innerInset)
                 }
             } else {
                 singleRing(used: sessionUsed, inset: 0)
-                if size >= 24 {
+                if size >= 24, showWeekly {
                     singleRing(used: weeklyUsed, inset: innerInset)
                 }
             }
@@ -334,20 +335,27 @@ private struct MenuBarCircleGauge: View {
 struct MenuBarStripView: View {
     @ObservedObject var store: SnapshotStore
     @ObservedObject var settings: SettingsStore
+    var target: StripTarget = .menuBar
 
-    private var activeItems: [(ProviderID, ProviderSnapshot)] {
-        let candidates = store.menuBarProviders.compactMap { id -> (ProviderID, ProviderSnapshot)? in
+    private var config: StripSettings { settings.strip(target) }
+    private var activeItems: [(ProviderID, ProviderSnapshot)] { Self.items(store: store, settings: settings, target: target) }
+
+    /// The providers a surface shows right now under its display mode (all / single / carousel).
+    @MainActor
+    static func items(store: SnapshotStore, settings: SettingsStore, target: StripTarget) -> [(ProviderID, ProviderSnapshot)] {
+        let config = settings.strip(target)
+        let candidates = store.providers(on: target).compactMap { id -> (ProviderID, ProviderSnapshot)? in
             guard let snap = store.states[id]?.snapshot else { return nil }
             guard !snap.lines.isEmpty || snap.localSpend?.hasAnyUsage == true else { return nil }
             return (id, snap)
         }
         guard !candidates.isEmpty else { return [] }
 
-        switch settings.menuBarDisplayMode {
+        switch config.displayMode {
         case .all:
             return candidates
         case .single:
-            if let match = candidates.first(where: { $0.0 == settings.selectedSingleProvider }) {
+            if let match = candidates.first(where: { $0.0 == config.singleProvider }) {
                 return [match]
             }
             return candidates.max { ($0.1.sessionPercent ?? 0) < ($1.1.sessionPercent ?? 0) }.map { [$0] } ?? []
@@ -374,7 +382,7 @@ struct MenuBarStripView: View {
 
     @ViewBuilder
     private func leadingIndicator(for id: ProviderID, snap: ProviderSnapshot, size: CGFloat) -> some View {
-        switch settings.menuBarIconStyle {
+        switch config.iconStyle {
         case .logo:
             ProviderLogoView(provider: id, size: size, tinted: true)
         case .ring:
@@ -444,7 +452,7 @@ struct MenuBarStripView: View {
                         // Spend-only provider (OpenCode without a budget): a single number, today's local spend.
                         // A hidden copy of the other providers' own layout ("5H 100% / 7D 100%", or the single
                         // "100%" row) reserves exactly their width, so the item is never bigger than theirs.
-                        let twoRows = settings.menuBarMetricMode == .sessionAndWeekly
+                        let twoRows = config.metricMode == .sessionAndWeekly
                         HStack(spacing: 3.5) {
                             leadingIndicator(for: id, snap: snap, size: twoRows ? 14 : 13.5)
                             Group {
@@ -475,7 +483,7 @@ struct MenuBarStripView: View {
                         }
                         .padding(.horizontal, 2)
                         .frame(height: 22)
-                    } else if settings.menuBarMetricMode == .sessionAndWeekly {
+                    } else if config.metricMode == .sessionAndWeekly {
                         // Two stacked rows (5h + 7d). ZStack hidden "100%" template guarantees
                         // zero truncation ("...") and 100% identical width for 0%..100%.
                         HStack(spacing: 3.5) {
