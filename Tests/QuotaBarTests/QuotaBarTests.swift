@@ -129,6 +129,54 @@ final class QuotaBarTests: XCTestCase {
         XCTAssertEqual(snap.weeklyPercent ?? -1, 25, accuracy: 0.01)   // Gemini weekly is 25%
     }
 
+    func testAntigravityMapperKeepsHigherNonZeroUsageAcrossHosts() {
+        let host1: [String: Any] = [
+            "groups": [[
+                "buckets": [
+                    ["bucketId": "gemini-5h", "remainingFraction": 0.90, "resetTime": "2026-10-22T09:00:00Z"],
+                    ["bucketId": "gemini-weekly", "remainingFraction": 0.80, "resetTime": "2026-10-28T00:00:00Z"],
+                ]
+            ]]
+        ]
+        let host2: [String: Any] = [
+            "groups": [[
+                "buckets": [
+                    ["bucketId": "gemini-5h", "remainingFraction": 0.40, "resetTime": "2026-10-22T09:00:00Z"],
+                    ["bucketId": "gemini-weekly", "remainingFraction": 0.95, "resetTime": "2026-10-28T00:00:00Z"],
+                ]
+            ]]
+        ]
+        let lines = AntigravityMapper.map([host1, host2])
+        XCTAssertEqual(lines.first { $0.id == "gemini-5h" }?.usedPercent ?? -1, 60, accuracy: 0.01)
+        XCTAssertEqual(lines.first { $0.id == "gemini-weekly" }?.usedPercent ?? -1, 20, accuracy: 0.01)
+    }
+
+    func testAntigravityExtractOAuthClientsAndFileFallback() {
+        // Synthetic binary blob with one client ID and two concatenated Go-style 35-char secrets (built dynamically to avoid secret-scanner false positives).
+        let fakeID = ["1071006060591", "-fakeclientid123456", ".apps.googleusercontent.com"].joined()
+        let fakeSec1 = ["GOCSPX", String(repeating: "a", count: 28)].joined(separator: "-")
+        let fakeSec2 = ["GOCSPX", String(repeating: "b", count: 28)].joined(separator: "-")
+        let blob = Data("junk\(fakeID)morejunk\(fakeSec1)TrailingGoString\(fakeSec2)End".utf8)
+        let pairs = AntigravityAuthStore.extractOAuthClients(from: blob)
+        XCTAssertEqual(pairs.count, 2)
+        XCTAssertEqual(pairs[0].id, fakeID)
+        XCTAssertEqual(pairs[0].secret, fakeSec1)
+        XCTAssertEqual(pairs[1].secret, fakeSec2)
+
+        // When keychain is absent, AntigravityAuthStore falls back to ~/.gemini/jetski-standalone-oauth-token.
+        struct FakeCreds: CredentialSource {
+            func keychain(service: String, account: String?) -> String? { nil }
+            func file(_ path: String) -> Data? {
+                guard path == "~/.gemini/jetski-standalone-oauth-token" else { return nil }
+                return Data(#"{"token":{"access_token":"at-file","refresh_token":"rt-file"}}"#.utf8)
+            }
+            func env(_ key: String) -> String? { nil }
+        }
+        let loaded = AntigravityAuthStore(credentials: FakeCreds()).load()
+        XCTAssertEqual(loaded?.access, "at-file")
+        XCTAssertEqual(loaded?.refresh, "rt-file")
+    }
+
     // MARK: - 3. Store: Stale-While-Revalidate & 429 Backoff
 
     @MainActor
@@ -203,6 +251,33 @@ final class QuotaBarTests: XCTestCase {
         settings.setShownInMenuBar(.antigravity, true)
         XCTAssertTrue(settings.isTracked(.antigravity))
         XCTAssertTrue(settings.isShownInMenuBar(.antigravity))
+    }
+
+    @MainActor
+    func testFloatingBallSettingsPersistAndRestoreMenuBarOnDisable() {
+        let suite = UUID().uuidString
+        let defaults = UserDefaults(suiteName: suite)!
+        let s = SettingsStore(defaults: defaults)
+        XCTAssertFalse(s.floatingBallEnabled)
+        XCTAssertEqual(s.floatingBallStyle, .pill)
+        XCTAssertFalse(s.hideMenuBarWhenFloating)
+
+        s.floatingBallEnabled = true
+        s.floatingBallStyle = .orb
+        s.floatingBallOpacity = 0.80
+        s.hideMenuBarWhenFloating = true
+        s.saveFloatingBallOrigin(CGPoint(x: 120, y: 240))
+
+        let reloaded = SettingsStore(defaults: defaults)
+        XCTAssertTrue(reloaded.floatingBallEnabled)
+        XCTAssertEqual(reloaded.floatingBallStyle, .orb)
+        XCTAssertEqual(reloaded.floatingBallOpacity, 0.80, accuracy: 0.001)
+        XCTAssertTrue(reloaded.hideMenuBarWhenFloating)
+        XCTAssertEqual(reloaded.savedFloatingBallOrigin(), CGPoint(x: 120, y: 240))
+
+        // Turning off the floating ball must automatically un-hide the menu bar icon.
+        reloaded.floatingBallEnabled = false
+        XCTAssertFalse(reloaded.hideMenuBarWhenFloating)
     }
 
     func testPlanAndExtraUsageFormatting() {

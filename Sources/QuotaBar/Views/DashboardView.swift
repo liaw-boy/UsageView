@@ -790,12 +790,11 @@ private struct MetricBarRow: View {
 
     var body: some View {
         GeometryReader { geo in
-            // Progress bar always indicates usage (消耗量：用越多越長，越滿越接近警示色)
-            let barFraction = line.usedPercent / 100.0
+            // Follow the active display mode: remaining % fills from 100% down; used % fills from 0% up.
+            let barFraction = (showRemaining ? line.remainingPercent : line.usedPercent) / 100.0
             let fillWidth = max(barFraction > 0.005 ? 4 : 0, geo.size.width * CGFloat(barFraction))
-            // White time tick always indicates time elapsed from left (0%) to right (100%)
-            let elapsedFraction = line.timeElapsedFraction()
-            let tickFraction = elapsedFraction
+            // Even-pace time tick aligns with the bar direction (remaining time in remaining mode, elapsed time in used mode).
+            let tickFraction = line.timeElapsedFraction().map { showRemaining ? (1.0 - $0) : $0 }
 
             ZStack(alignment: .leading) {
                 RoundedRectangle(cornerRadius: 5, style: .continuous)
@@ -933,6 +932,7 @@ struct SettingsView: View {
         VStack(spacing: 8) {
             providerMatrixCard
             displayModeCard
+            floatingBallCard
             if settings.isTracked(.opencode) { opencodeQuotaCard }
             scheduleAndAlertsCard
             updateCard
@@ -1165,6 +1165,89 @@ struct SettingsView: View {
                     .padding(2)
                     .background(Color.white.opacity(0.06), in: Capsule())
                     .fixedSize(horizontal: true, vertical: false)
+                }
+            }
+        }
+    }
+
+    private var floatingBallCard: some View {
+        SettingsCard(title: "桌面懸浮球（釋放狀態列空間）", icon: "circle.circle.fill") {
+            VStack(alignment: .leading, spacing: 7) {
+                SettingsToggleRow(
+                    title: "顯示桌面懸浮球",
+                    subtitle: "置頂於所有視窗與全螢幕上方；可拖曳位置、左鍵展開面板、右鍵快捷選單",
+                    isOn: $settings.floatingBallEnabled
+                )
+
+                if settings.floatingBallEnabled {
+                    Divider().overlay(Color.white.opacity(0.08))
+
+                    HStack {
+                        Text("懸浮球外觀")
+                            .font(.system(size: 11.5, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.9))
+                            .lineLimit(1)
+                        Spacer()
+                        HStack(spacing: 3) {
+                            ForEach(FloatingBallStyle.allCases, id: \.self) { style in
+                                let selected = settings.floatingBallStyle == style
+                                Button {
+                                    settings.floatingBallStyle = style
+                                } label: {
+                                    Text(style.title)
+                                        .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                                        .lineLimit(1)
+                                        .fixedSize(horizontal: true, vertical: false)
+                                        .foregroundStyle(selected ? .white : .white.opacity(0.5))
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 3.5)
+                                        .background(
+                                            Capsule().fill(selected ? Color.white.opacity(0.18) : Color.clear)
+                                        )
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(2)
+                        .background(Color.white.opacity(0.06), in: Capsule())
+                        .fixedSize(horizontal: true, vertical: false)
+                    }
+
+                    HStack {
+                        Text("不透明度")
+                            .font(.system(size: 11.5, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.9))
+                            .lineLimit(1)
+                        Spacer()
+                        HStack(spacing: 3) {
+                            ForEach(SettingsStore.floatingBallOpacityOptions, id: \.self) { level in
+                                let selected = abs(settings.floatingBallOpacity - level) < 0.05
+                                Button {
+                                    settings.floatingBallOpacity = level
+                                } label: {
+                                    Text("\(Int((level * 100).rounded()))%")
+                                        .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                                        .monospacedDigit()
+                                        .foregroundStyle(selected ? .white : .white.opacity(0.5))
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 3.5)
+                                        .background(
+                                            Capsule().fill(selected ? Color.white.opacity(0.18) : Color.clear)
+                                        )
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(2)
+                        .background(Color.white.opacity(0.06), in: Capsule())
+                        .fixedSize(horizontal: true, vertical: false)
+                    }
+
+                    SettingsToggleRow(
+                        title: "同時隱藏頂部狀態列圖示",
+                        subtitle: "關閉懸浮球時會自動恢復狀態列圖示",
+                        isOn: $settings.hideMenuBarWhenFloating
+                    )
                 }
             }
         }

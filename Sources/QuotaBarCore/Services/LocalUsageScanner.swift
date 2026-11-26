@@ -62,16 +62,17 @@ public actor LocalUsageScanner {
     private var fileCache: [String: CachedFile] = [:]
     private var loadedDiskCache = false
     private let diskCacheURL: URL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("QuotaBar/local-spend-cache-v3.json")
+        .appendingPathComponent("QuotaBar/local-spend-cache-v4.json")
 
     public init() {}
 
     private func ensureDiskCacheLoaded() {
         guard !loadedDiskCache else { return }
         loadedDiskCache = true
-        // Our own superseded cache (records without project names).
-        try? FileManager.default.removeItem(at: diskCacheURL.deletingLastPathComponent()
-            .appendingPathComponent("local-spend-cache-v2.json"))
+        // Our own superseded caches (records without project names or pre-fix Codex/Antigravity parsing).
+        let cacheDir = diskCacheURL.deletingLastPathComponent()
+        try? FileManager.default.removeItem(at: cacheDir.appendingPathComponent("local-spend-cache-v2.json"))
+        try? FileManager.default.removeItem(at: cacheDir.appendingPathComponent("local-spend-cache-v3.json"))
         if let data = try? Data(contentsOf: diskCacheURL),
            let decoded = try? JSONDecoder().decode([String: CachedFile].self, from: data) {
             fileCache = decoded
@@ -238,22 +239,29 @@ public actor LocalUsageScanner {
             }
         }
         let l = raw.lowercased()
+        if l.contains("gemini-4-neon") || l.contains("gemini 4 neon") { return "Gemini 4 Neon" }
+        if l.contains("gemini-4-carbon") || l.contains("gemini 4 carbon") { return "Gemini 4 Carbon" }
+        if l.contains("gemini-4-argon") || l.contains("gemini 4 argon") { return "Gemini 4 Argon" }
+        if l.contains("gemini-4-hydrogen") || l.contains("gemini 4 hydrogen") { return "Gemini 4 Hydrogen" }
+        if l.contains("gemini-3.8-flash") || l.contains("gemini 3.8 flash") { return "Gemini 3.8 Flash" }
         if l.contains("gemini-3.1-pro") || l.contains("gemini-3-pro") { return "Gemini 3.1 Pro" }
         if l.contains("gemini-2.5-pro") { return "Gemini 2.5 Pro" }
         if l.contains("gemini-2.5-flash") { return "Gemini 2.5 Flash" }
         if l.contains("flash") { return "Gemini Flash" }
         if l.contains("argon") { return "Gemini Argon" }
+        if l.contains("gemini") { return "Gemini Pro" }
+        if l.contains("sonnet-5-5") || l.contains("sonnet 5.5") { return "Claude Sonnet 5.5" }
         if l.contains("sonnet-4-6") { return "Claude Sonnet 4.6" }
         if l.contains("sonnet-4-5") { return "Claude Sonnet 4.5" }
         if l.contains("sonnet-3-7") || l.contains("3-7-sonnet") { return "Claude 3.7 Sonnet" }
         if l.contains("sonnet-3-5") || l.contains("3-5-sonnet") { return "Claude 3.5 Sonnet" }
+        if l.contains("opus-5-5") || l.contains("opus 5.5") { return "Claude Opus 5.5" }
         if l.contains("opus") { return "Claude Opus" }
         if l.contains("haiku") { return "Claude Haiku" }
         if l.contains("fable") { return "Claude Fable" }
         if l.contains("gpt-5") { return "GPT-5" }
         if l.contains("gpt-4") { return "GPT-4o" }
         if l.contains("mini") { return "Codex Mini" }
-        if l.contains("gemini") { return "Gemini Pro" }
         return raw
     }
 
@@ -450,8 +458,19 @@ public actor LocalUsageScanner {
         var currentModel = "gpt-5.3-codex"
         var currentProject: String?
         var prevIn = 0, prevCached = 0, prevOut = 0, prevReason = 0
+        var hasPrevTotal = false
+
+        let sessionMetaMarker = Data(#""session_meta""#.utf8)
+        let turnContextMarker = Data(#""turn_context""#.utf8)
+        let tokenCountMarker = Data(#""token_count""#.utf8)
 
         for line in data.split(separator: UInt8(ascii: "\n")) {
+            // Fast-path byte filter: skip huge tool outputs / world_state lines without JSON decoding.
+            guard line.range(of: tokenCountMarker) != nil
+                || line.range(of: turnContextMarker) != nil
+                || line.range(of: sessionMetaMarker) != nil
+            else { continue }
+
             guard let obj = (try? JSONSerialization.jsonObject(with: Data(line))) as? [String: Any],
                   let type = obj["type"] as? String
             else { continue }
@@ -477,16 +496,22 @@ public actor LocalUsageScanner {
             let reasonTok: Int
 
             if let last = info?["last_token_usage"] as? [String: Any] {
+                if let tot = info?["total_token_usage"] as? [String: Any] {
+                    let tIn = (tot["input_tokens"] as? NSNumber)?.intValue ?? prevIn
+                    let tCached = (tot["cached_input_tokens"] as? NSNumber)?.intValue ?? prevCached
+                    let tOut = (tot["output_tokens"] as? NSNumber)?.intValue ?? prevOut
+                    let tReason = (tot["reasoning_output_tokens"] as? NSNumber)?.intValue ?? prevReason
+                    // Codex emits duplicate token_count events with identical cumulative totals; skip repeats.
+                    if hasPrevTotal && tIn == prevIn && tCached == prevCached && tOut == prevOut && tReason == prevReason {
+                        continue
+                    }
+                    prevIn = tIn; prevCached = tCached; prevOut = tOut; prevReason = tReason
+                    hasPrevTotal = true
+                }
                 inTok = (last["input_tokens"] as? NSNumber)?.intValue ?? 0
                 cachedTok = (last["cached_input_tokens"] as? NSNumber)?.intValue ?? 0
                 outTok = (last["output_tokens"] as? NSNumber)?.intValue ?? 0
                 reasonTok = (last["reasoning_output_tokens"] as? NSNumber)?.intValue ?? 0
-                if let tot = info?["total_token_usage"] as? [String: Any] {
-                    prevIn = (tot["input_tokens"] as? NSNumber)?.intValue ?? prevIn
-                    prevCached = (tot["cached_input_tokens"] as? NSNumber)?.intValue ?? prevCached
-                    prevOut = (tot["output_tokens"] as? NSNumber)?.intValue ?? prevOut
-                    prevReason = (tot["reasoning_output_tokens"] as? NSNumber)?.intValue ?? prevReason
-                }
             } else if let tot = info?["total_token_usage"] as? [String: Any] {
                 let tIn = (tot["input_tokens"] as? NSNumber)?.intValue ?? 0
                 let tCached = (tot["cached_input_tokens"] as? NSNumber)?.intValue ?? 0
@@ -497,18 +522,22 @@ public actor LocalUsageScanner {
                 outTok = max(0, tOut - prevOut)
                 reasonTok = max(0, tReason - prevReason)
                 prevIn = tIn; prevCached = tCached; prevOut = tOut; prevReason = tReason
+                hasPrevTotal = true
             } else {
                 continue
             }
 
-            let total = inTok + outTok + reasonTok
+            // In OpenAI / Codex responses, `output_tokens` already includes `reasoning_output_tokens`
+            // (`input_tokens + output_tokens == total_tokens`); only fall back to `reasonTok` if `outTok` is 0.
+            let effectiveOut = outTok > 0 ? outTok : reasonTok
+            let total = inTok + effectiveOut
             guard total > 0 else { continue }
             let model = (payload?["model"] as? String) ?? (info?["model"] as? String) ?? currentModel
             let cost = ModelRateTable.estimateCodexCost(
                 model: model,
                 input: max(0, inTok - cachedTok),
                 cached: min(cachedTok, inTok),
-                output: outTok + reasonTok
+                output: effectiveOut
             )
             out.append(Record(timestamp: ts, tokens: total, costUSD: cost, dedupKey: nil, isSidechain: false, model: model,
                               project: currentProject))
@@ -522,7 +551,7 @@ public actor LocalUsageScanner {
         let geminiDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".gemini")
         guard let entries = try? FileManager.default.contentsOfDirectory(atPath: geminiDir.path) else { return [] }
         let convDirs = entries
-            .filter { $0.hasPrefix("antigravity") }
+            .filter { $0.hasPrefix("antigravity") && !$0.lowercased().contains("backup") }
             .sorted()
             .map { geminiDir.appendingPathComponent($0).appendingPathComponent("conversations") }
 
