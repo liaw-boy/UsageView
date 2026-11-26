@@ -329,4 +329,44 @@ final class ClaudeStatusLineLimitsTests: XCTestCase {
         stale.snapshot?.apiFetchedAt = Date().addingTimeInterval(-60 * 60)
         XCTAssertTrue(store.shouldFetch(.claude, state: stale, manual: false, now: Date()))
     }
+
+    func testStaleStatusLineWindowsAreIgnored() {
+        let now = Date()
+        func line(_ used: Double, resetIn: TimeInterval?) -> MetricLine {
+            MetricLine(id: "seven_day", label: "7D", kind: .weekly, usedPercent: used, resetsAt: resetIn.map { now.addingTimeInterval($0) })
+        }
+        let current = [line(3, resetIn: 7 * 86400)]
+        let pick = { (f: MetricLine) in SnapshotStore.currentStatusLineWindows([f], over: current, now: now).first?.usedPercent }
+
+        XCTAssertNil(pick(line(94, resetIn: -120)))                 // window already reset
+        XCTAssertNil(pick(line(94, resetIn: 3 * 86400)))            // older window than the API's
+        XCTAssertEqual(pick(line(1, resetIn: 7 * 86400 + 30)), 3)   // same window, idle session lags: keep higher
+        XCTAssertEqual(pick(line(8, resetIn: 7 * 86400 - 30)), 8)   // same window, newer usage
+        XCTAssertEqual(SnapshotStore.currentStatusLineWindows([line(5, resetIn: 3600)], over: [], now: now).first?.usedPercent, 5)
+    }
+
+    @MainActor
+    func testStaleFileDoesNotOverwriteFreshAPIData() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: dir) }
+        let cache = dir.appendingPathComponent("snapshots.json")
+        let limits = dir.appendingPathComponent("limits.json")
+        let reset = Date().addingTimeInterval(7 * 86400)
+        try JSONEncoder().encode([ProviderSnapshot(provider: .claude, lines: [
+            MetricLine(id: "seven_day", label: "7D", kind: .weekly, usedPercent: 2, resetsAt: reset),
+        ], fetchedAt: Date().addingTimeInterval(-60))]).write(to: cache)
+        let now = Date().timeIntervalSince1970
+        try JSONSerialization.data(withJSONObject: [
+            "written_at": now,
+            "rate_limits": ["seven_day": ["used_percentage": 94, "resets_at": now - 300]],
+        ]).write(to: limits)
+
+        let settings = SettingsStore(defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        let store = SnapshotStore(runtimes: [OkRuntime(id: .claude, attempts: Attempts())], settings: settings,
+                                  cacheURL: cache, claudeLimitsURL: limits)
+        store.applyClaudeStatusLineLimits()
+
+        XCTAssertEqual(store.states[.claude]?.snapshot?.lines.first?.usedPercent, 2)
+    }
 }

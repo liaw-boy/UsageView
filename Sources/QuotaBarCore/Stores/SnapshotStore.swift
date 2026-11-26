@@ -244,13 +244,16 @@ public final class SnapshotStore: ObservableObject {
               modified != claudeLimitsModified else { return }
         claudeLimitsModified = modified
         guard let body = Parse.object(try? Data(contentsOf: url)),
-              let (writtenAt, fresh) = ClaudeMapper.statusLineLimits(body),
+              let (writtenAt, fileLines) = ClaudeMapper.statusLineLimits(body),
               writtenAt <= Date().addingTimeInterval(60)
         else { return }
-        claudeLimitsWrittenAt = writtenAt
-        guard writtenAt > (states[.claude]?.snapshot?.fetchedAt ?? .distantPast) else { return }
         var s = states[.claude] ?? ProviderState()
         let old = s.snapshot
+        let fresh = Self.currentStatusLineWindows(fileLines, over: old?.lines ?? [], now: Date())
+        // A file holding only stale windows says nothing current, so it must not stretch the API interval either.
+        guard !fresh.isEmpty else { return }
+        claudeLimitsWrittenAt = writtenAt
+        guard writtenAt > (old?.fetchedAt ?? .distantPast) else { return }
         var lines = old?.lines.map { line in fresh.first { $0.id == line.id } ?? line } ?? []
         lines += fresh.filter { f in !lines.contains { $0.id == f.id } }
         s.snapshot = ProviderSnapshot(provider: .claude, lines: lines, fetchedAt: writtenAt, planName: old?.planName,
@@ -261,6 +264,21 @@ public final class SnapshotStore: ObservableObject {
         states[.claude] = s
         if let snap = s.snapshot { history.record(snap) }
         saveCache()
+    }
+
+    /// `written_at` is when a Claude Code session redrew its status line, not when it last saw the limits: an idle
+    /// session keeps writing the numbers it saw hours ago. Per window, drop values from an already-reset or older
+    /// window, and within the same window keep the higher usage (it only grows until the reset).
+    nonisolated static func currentStatusLineWindows(_ fresh: [MetricLine], over old: [MetricLine], now: Date) -> [MetricLine] {
+        let sameWindow: TimeInterval = 10 * 60 // reset times from the file and the API differ by rounding only
+        return fresh.compactMap { f in
+            if let reset = f.resetsAt, reset <= now { return nil }
+            guard let o = old.first(where: { $0.id == f.id }), let oReset = o.resetsAt, let fReset = f.resetsAt,
+                  oReset > now else { return f }
+            if fReset < oReset - sameWindow { return nil }
+            if fReset <= oReset + sameWindow, o.usedPercent > f.usedPercent { return o }
+            return f
+        }
     }
 
     /// Re-runs one provider immediately, bypassing the refresh interval. Only meant for local-only providers
