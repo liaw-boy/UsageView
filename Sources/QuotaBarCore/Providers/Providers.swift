@@ -684,15 +684,24 @@ struct AntigravityRuntime: ProviderRuntime {
         return try await http.send(req)
     }
 
-    private func refreshAccessToken(_ refreshToken: String,
-                                    clients: [(id: String, secret: String)] = AntigravityAuthStore.localOAuthClients) async throws -> String {
+    /// Each failed pair resends the refresh token to Google; cap the tries so a binary with many
+    /// `GOCSPX-` literals can't turn one refresh into a burst of requests.
+    static let maxClientAttempts = 4
+
+    /// The last working pair first, then the discovered pairs, de-duplicated and capped at `maxClientAttempts`.
+    static func refreshCandidates(cached: (id: String, secret: String)?,
+                                  clients: [(id: String, secret: String)]) -> [(id: String, secret: String)] {
         var ordered: [(id: String, secret: String)] = []
-        if let cached = InMemoryTokenCache.shared.getWorkingClient() {
-            ordered.append(cached)
-        }
-        for c in clients where !ordered.contains(where: { $0.id == c.id && $0.secret == c.secret }) {
+        for c in (cached.map { [$0] } ?? []) + clients
+        where !ordered.contains(where: { $0.id == c.id && $0.secret == c.secret }) {
             ordered.append(c)
         }
+        return Array(ordered.prefix(maxClientAttempts))
+    }
+
+    private func refreshAccessToken(_ refreshToken: String,
+                                    clients: [(id: String, secret: String)] = AntigravityAuthStore.localOAuthClients) async throws -> String {
+        let ordered = Self.refreshCandidates(cached: InMemoryTokenCache.shared.getWorkingClient(), clients: clients)
         guard !ordered.isEmpty else {
             throw ProviderError.unauthorized("Token 已過期，請開啟 Antigravity 或執行 agy")
         }

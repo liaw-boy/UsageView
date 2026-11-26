@@ -326,6 +326,13 @@ final class QuotaBarTests: XCTestCase {
         XCTAssertEqual(proj2?.isWarning, true)
         XCTAssertTrue(proj2?.text.contains("後耗盡") == true)
     }
+    func testAntigravityRefreshTriesAtMostFourClientPairs() {
+        let pairs = (0..<9).map { (id: "id-\($0)", secret: "sec-\($0)") }
+        let cached = (id: "id-5", secret: "sec-5")
+        let ordered = AntigravityRuntime.refreshCandidates(cached: cached, clients: pairs)
+        XCTAssertEqual(ordered.map(\.id), ["id-5", "id-0", "id-1", "id-2"])
+        XCTAssertTrue(AntigravityRuntime.refreshCandidates(cached: nil, clients: []).isEmpty)
+    }
 }
 
 private final class LockedBox: @unchecked Sendable {
